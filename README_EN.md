@@ -1,8 +1,25 @@
-# 💝 simp-skill · Love Strategist
+<div align="center">
 
-> **Win over your crush with the most sincere words.**
+# 💝 simp-skill
 
-A Claude Code Skill built for the genuinely devoted. No manipulation. No games. Just one belief: **authenticity is the strongest move.**
+> *"In this vast world, some people only pass through once."*
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-Skill-blueviolet)](https://claude.ai/code)
+[![Love Strategist](https://img.shields.io/badge/追爱军师-Love%20Strategist-ff69b4)](https://github.com/BeamusWayne/simp-skill)
+
+<br>
+
+No manipulation. No games. Just one belief — **authenticity is the strongest move.**<br>
+Feed it your chat logs, social media, and photos. Get a signal analysis report back.<br>
+**Quantify the warmth, build the strategy, win your crush.**
+
+<br>
+
+[Quick Start](#quick-start) · [Commands](#full-command-reference) · [Crisis Playbook](#crisis-playbook) · [中文](README.md)
+
+</div>
 
 ---
 

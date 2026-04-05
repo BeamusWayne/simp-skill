@@ -1,8 +1,25 @@
-# 💝 simp-skill 追爱军师
+<div align="center">
 
-> **用最纯情的话，把心上人追到手。**
+# 💝 simp-skill
 
-一个为真心人打造的 Claude Code Skill。不教套路，不玩 PUA，只相信一件事：**真心，是最强的攻略。**
+> *"茫茫人海，一旦错过就不再。"*
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-Skill-blueviolet)](https://claude.ai/code)
+[![追爱军师](https://img.shields.io/badge/追爱军师-Love%20Strategist-ff69b4)](https://github.com/BeamusWayne/simp-skill)
+
+<br>
+
+不教套路，不玩 PUA，只相信一件事——**真心，是最强的攻略。**<br>
+提供聊天记录、社交媒体截图、照片，生成信号分析报告。<br>
+**量化感情温度，定制追求策略，把心上人追到手。**
+
+<br>
+
+[快速开始](#快速开始) · [指令列表](#指令完整列表) · [危机处理](#危机处理覆盖范围) · [English](README_EN.md)
+
+</div>
 
 ---
 
