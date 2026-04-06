@@ -1,6 +1,9 @@
 # 心上人档案（个人隐私数据，不上传）
 crushes/
 
+# 实验性内容，不上传
+experiment/
+
 # Python
 __pycache__/
 *.py[cod]
