@@ -4,6 +4,8 @@
 
 > *"In this vast world, some people only pass through once."*
 
+> *A simp is someone brave enough to genuinely like another person. This is about learning to say that out loud.*
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Skill-blueviolet)](https://claude.ai/code)

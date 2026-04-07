@@ -4,6 +4,8 @@
 
 > *"茫茫人海，一旦错过就不再。"*
 
+> *simp，是那个敢于真心喜欢一个人的人。这里教的，是把真心说出口的能力。*
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Skill-blueviolet)](https://claude.ai/code)
