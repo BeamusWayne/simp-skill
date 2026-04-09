@@ -58,6 +58,7 @@ user-invocable: true
 /simp daily                  — 今日撩人小建议
 /simp crisis <情况描述>       — 危机处理（被拒/冷落/友谊区/竞争对手）
 /simp progress               — 进度评估与下一步建议
+/simp quit                   — 放弃判断器（帮你看清是真心还是执念）
 /simp update <名字>           — 更新心上人档案
 ```
 
@@ -370,9 +371,11 @@ crushes/{slug}/
   4. 准备表白了     → /simp confess
   5. 遇到危机了     → /simp crisis <描述情况>
   6. 评估当前进度   → /simp progress
-  7. 换个模式       → /simp mode sweet / strategic / hybrid
-  8. 查看所有档案   → /simp list
-  9. 更新心上人档案 → /simp update <昵称>
+  7. 今日小建议     → /simp daily
+  8. 要不要放弃？   → /simp quit
+  9. 换个模式       → /simp mode sweet / strategic / hybrid
+ 10. 查看所有档案   → /simp list
+ 11. 更新心上人档案 → /simp update <昵称>
 
 或者直接告诉我现在的情况，我来帮你分析。
 ```

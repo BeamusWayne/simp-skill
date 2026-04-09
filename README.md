@@ -36,6 +36,7 @@
 | 💌 **表白定制**  | 帮你准备让对方难忘的表白词           |
 | 🆘 **危机处理**  | 被拒/冷落/翻车/友谊区，每种危机都有应对方案 |
 | 📊 **聊天分析**  | 自动分析微信/QQ聊天记录，量化感情温度    |
+| 🍃 **放弃判断**  | 帮你看清是真心还是执念，该继续还是该放下   |
 
 
 ---
@@ -125,6 +126,7 @@ python3 tools/photo_analyzer.py --dir ./photos --target 小美 --output report.m
 | `/simp daily`          | 今日撩人小建议       |
 | `/simp crisis <情况>`    | 危机处理          |
 | `/simp progress`       | 进度评估与下一步建议    |
+| `/simp quit`           | 放弃判断器         |
 | `/simp mode sweet`     | 切换到纯情模式 💖    |
 | `/simp mode strategic` | 切换到策略模式 🎯    |
 | `/simp mode hybrid`    | 切换到混合模式 ✨（默认） |

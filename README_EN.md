@@ -35,6 +35,7 @@ Feed it your chat logs, social media, and photos. Get a signal analysis report b
 | 💌 **Confession Writing** | Craft a confession that feels true to you and resonates with them |
 | 🆘 **Crisis Handling** | Got rejected, ghosted, friend-zoned, or said something wrong? There's a plan for that |
 | 📊 **Chat Analysis** | Parse WeChat/QQ history to quantify relationship temperature with real data |
+| 🍃 **Quit Judge** | Figure out if it's real love or just pride — and whether to keep going or let go |
 
 ---
 
@@ -117,6 +118,7 @@ python3 tools/photo_analyzer.py --dir ./photos --target Emma --output report.md
 | `/simp daily` | Today's small flirting suggestion |
 | `/simp crisis <situation>` | Crisis response |
 | `/simp progress` | Progress assessment and next steps |
+| `/simp quit` | Quit judge — real love or stubborn pride? |
 | `/simp mode sweet` | Switch to Pure Love Mode 💖 |
 | `/simp mode strategic` | Switch to Strategic Mode 🎯 |
 | `/simp mode hybrid` | Switch to Hybrid Mode ✨ (default) |
