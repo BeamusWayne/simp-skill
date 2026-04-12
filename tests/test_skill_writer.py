@@ -36,12 +36,15 @@ class TestInitCrush:
         crush_dir = tmp_base / "xiaomei"
         assert crush_dir.is_dir()
         assert (crush_dir / "profile.md").exists()
+        assert (crush_dir / "state.md").exists()
+        assert (crush_dir / "events.jsonl").exists()
         assert (crush_dir / "strategy.md").exists()
         assert (crush_dir / "meta.json").exists()
         assert (crush_dir / "memories" / "chats").is_dir()
         assert (crush_dir / "memories" / "social").is_dir()
         assert (crush_dir / "memories" / "photos").is_dir()
         assert (crush_dir / "versions").is_dir()
+        assert (crush_dir / "snapshots").is_dir()
 
     def test_meta_json_defaults(self, tmp_base: Path) -> None:
         init_crush("xiaomei", tmp_base)
@@ -51,6 +54,30 @@ class TestInitCrush:
         assert meta["mode"] == "hybrid"
         assert meta["signal_score"] is None
         assert meta["current_stage"] == "未知"
+        assert meta["nickname"] == "[待填写]"
+        assert meta["event_count"] == 0
+        assert meta["last_snapshot"] is None
+
+    def test_profile_md_has_yaml_frontmatter(self, tmp_base: Path) -> None:
+        init_crush("xiaomei", tmp_base)
+        content = (tmp_base / "xiaomei" / "profile.md").read_text(encoding="utf-8")
+        assert content.startswith("---\n")
+        assert "slug: xiaomei" in content
+        assert "personality_type:" in content
+        assert "created_at:" in content
+
+    def test_state_md_has_yaml_frontmatter(self, tmp_base: Path) -> None:
+        init_crush("xiaomei", tmp_base)
+        content = (tmp_base / "xiaomei" / "state.md").read_text(encoding="utf-8")
+        assert content.startswith("---\n")
+        assert "current_stage:" in content
+        assert "signal_score:" in content
+        assert "milestones_done:" in content
+
+    def test_events_jsonl_is_empty_on_init(self, tmp_base: Path) -> None:
+        init_crush("xiaomei", tmp_base)
+        content = (tmp_base / "xiaomei" / "events.jsonl").read_text(encoding="utf-8")
+        assert content == ""
 
     def test_does_not_overwrite_existing_profile(self, tmp_base: Path) -> None:
         init_crush("xiaomei", tmp_base)
@@ -58,6 +85,20 @@ class TestInitCrush:
         profile_path.write_text("custom content", encoding="utf-8")
         init_crush("xiaomei", tmp_base)
         assert profile_path.read_text(encoding="utf-8") == "custom content"
+
+    def test_does_not_overwrite_existing_state(self, tmp_base: Path) -> None:
+        init_crush("xiaomei", tmp_base)
+        state_path = tmp_base / "xiaomei" / "state.md"
+        state_path.write_text("custom state", encoding="utf-8")
+        init_crush("xiaomei", tmp_base)
+        assert state_path.read_text(encoding="utf-8") == "custom state"
+
+    def test_does_not_overwrite_existing_events(self, tmp_base: Path) -> None:
+        init_crush("xiaomei", tmp_base)
+        events_path = tmp_base / "xiaomei" / "events.jsonl"
+        events_path.write_text('{"type":"test"}\n', encoding="utf-8")
+        init_crush("xiaomei", tmp_base)
+        assert events_path.read_text(encoding="utf-8") == '{"type":"test"}\n'
 
     def test_idempotent_on_repeated_calls(self, tmp_base: Path) -> None:
         init_crush("xiaomei", tmp_base)
@@ -121,6 +162,7 @@ class TestBackupCrush:
         version_name = backup_crush("xiaomei", tmp_base)
         version_dir = tmp_base / "xiaomei" / "versions" / version_name
         assert (version_dir / "profile.md").exists()
+        assert (version_dir / "state.md").exists()
         assert (version_dir / "strategy.md").exists()
         assert (version_dir / "meta.json").exists()
 
