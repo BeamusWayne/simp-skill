@@ -35,6 +35,7 @@ def init_crush(slug: str, base_dir: Path = DEFAULT_BASE_DIR) -> None:
         crush_dir / "memories" / "social",
         crush_dir / "memories" / "photos",
         crush_dir / "versions",
+        crush_dir / "snapshots",
     ]
     for d in dirs:
         d.mkdir(parents=True, exist_ok=True)
@@ -44,30 +45,56 @@ def init_crush(slug: str, base_dir: Path = DEFAULT_BASE_DIR) -> None:
     profile_path = crush_dir / "profile.md"
     if not profile_path.exists():
         profile_path.write_text(
-            f"# 心上人档案\n\n"
-            f"> 创建于 {now.strftime('%Y-%m-%d %H:%M')}\n\n"
-            f"## 基本信息\n\n"
-            f"- 昵称：[待填写]\n"
-            f"- 年龄：[待填写]\n"
-            f"- 性别：[待填写]\n"
-            f"- 职业：[待填写]\n"
-            f"- 城市：[待填写]\n\n"
+            f"---\n"
+            f"nickname: \"[待填写]\"\n"
+            f"slug: {slug}\n"
+            f"gender: \"[待填写]\"\n"
+            f"age: \"[待填写]\"\n"
+            f"occupation: \"[待填写]\"\n"
+            f"city: \"[待填写]\"\n"
+            f"mbti: \"[待填写]\"\n"
+            f"zodiac: \"[待填写]\"\n"
+            f"personality_type: \"[感性型/理性型/傲娇型/温柔型]\"\n"
+            f"how_met: \"[待填写]\"\n"
+            f"created_at: \"{now.strftime('%Y-%m-%d')}\"\n"
+            f"---\n\n"
             f"## 性格画像\n\n"
-            f"- MBTI：[待填写]\n"
-            f"- 星座：[待填写]\n"
-            f"- 性格类型：[感性型/理性型/傲娇型/温柔型]\n"
-            f"- 主要特征：[待填写]\n\n"
-            f"## 关系现状\n\n"
-            f"- 认识方式：[待填写]\n"
-            f"- 当前关系：[待填写]\n"
-            f"- 当前阶段：[破冰期/升温期/暧昧期/表白前]\n"
-            f"- 互动频率：[待填写]\n\n"
-            f"## 绿灯信号记录\n\n"
-            f"[在这里记录观察到的积极信号]\n\n"
-            f"## 更新日志\n\n"
-            f"- {now.strftime('%Y-%m-%d')}：档案创建\n",
+            f"[在这里描述ta的性格特征]\n\n"
+            f"## 最打动ta的方式\n\n"
+            f"[基于性格分析，什么样的话/行为最有效]\n\n"
+            f"## 用户自身风格\n\n"
+            f"[用户的说话风格、消息习惯、偏好模式]\n\n"
+            f"## 注意事项\n\n"
+            f"[ta特别在意或反感的事]\n",
             encoding="utf-8",
         )
+
+    state_path = crush_dir / "state.md"
+    if not state_path.exists():
+        state_path.write_text(
+            f"---\n"
+            f"current_stage: 未知\n"
+            f"signal_score: null\n"
+            f"last_signal_score: null\n"
+            f"score_trend: stable\n"
+            f"recommended_mode: hybrid\n"
+            f"last_updated: \"{now.strftime('%Y-%m-%dT%H:%M:%S')}\"\n"
+            f"milestones_done: 0\n"
+            f"---\n\n"
+            f"## 当前状态（一句话）\n\n"
+            f"[运行 /simp analyze 后自动生成]\n\n"
+            f"## 最近信号（最新3条）\n\n"
+            f"[暂无信号记录]\n\n"
+            f"## 当前策略方向\n\n"
+            f"[运行 /simp analyze 后生成]\n\n"
+            f"## 下一步建议\n\n"
+            f"[运行 /simp analyze 后生成]\n",
+            encoding="utf-8",
+        )
+
+    events_path = crush_dir / "events.jsonl"
+    if not events_path.exists():
+        events_path.touch()
 
     strategy_path = crush_dir / "strategy.md"
     if not strategy_path.exists():
@@ -89,19 +116,25 @@ def init_crush(slug: str, base_dir: Path = DEFAULT_BASE_DIR) -> None:
     if not meta_path.exists():
         meta = {
             "slug": slug,
+            "nickname": "[待填写]",
             "created_at": now.isoformat(),
             "updated_at": now.isoformat(),
             "version": "v1",
             "current_stage": "未知",
             "signal_score": None,
             "mode": "hybrid",
+            "event_count": 0,
+            "last_snapshot": None,
         }
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
     logger.info("✅ 档案目录创建成功：%s/", crush_dir)
     logger.info("   ├── profile.md     （心上人基本信息）")
+    logger.info("   ├── state.md       （当前状态快照）")
+    logger.info("   ├── events.jsonl   （事件日志）")
     logger.info("   ├── strategy.md    （追求策略）")
     logger.info("   ├── meta.json      （元数据）")
+    logger.info("   ├── snapshots/     （定期快照）")
     logger.info("   └── memories/")
     logger.info("       ├── chats/     （放聊天记录）")
     logger.info("       ├── social/    （放社交媒体截图）")
@@ -157,7 +190,7 @@ def backup_crush(slug: str, base_dir: Path = DEFAULT_BASE_DIR) -> str:
     version_dir = crush_dir / "versions" / version_name
     version_dir.mkdir(parents=True, exist_ok=True)
 
-    for filename in ["profile.md", "strategy.md", "meta.json"]:
+    for filename in ["profile.md", "state.md", "strategy.md", "meta.json"]:
         src = crush_dir / filename
         if src.exists():
             shutil.copy2(src, version_dir / filename)
@@ -177,7 +210,7 @@ def rollback_crush(slug: str, version: str, base_dir: Path = DEFAULT_BASE_DIR) -
     crush_dir = base_dir / slug
     versions_dir = crush_dir / "versions"
 
-    if not versions_dir.exists():
+    if not versions_dir.exists() or not any(versions_dir.iterdir()):
         logger.error("❌ 没有找到版本历史")
         return
 
@@ -191,7 +224,8 @@ def rollback_crush(slug: str, version: str, base_dir: Path = DEFAULT_BASE_DIR) -
     backup_crush(slug, base_dir)
 
     target_dir = sorted(matching)[-1]
-    for filename in ["profile.md", "strategy.md", "meta.json"]:
+    # events.jsonl 是不可变历史，不参与回滚
+    for filename in ["profile.md", "state.md", "strategy.md", "meta.json"]:
         src = target_dir / filename
         if src.exists():
             shutil.copy2(src, crush_dir / filename)
