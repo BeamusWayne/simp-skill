@@ -138,6 +138,7 @@ python3 tools/photo_analyzer.py --dir ./photos --target Emma --output report.md
 - **C-8** Stuck in the ambiguous zone → Three methods to force a breakthrough
 - **C-9** Misunderstanding / argument → Repair script framework
 - **C-10** One-sided effort → Stop-and-observe method
+- **C-11** They started dating someone else → 72-hour emotional triage + two-path framework
 
 ---
 

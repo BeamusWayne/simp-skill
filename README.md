@@ -147,6 +147,7 @@ python3 tools/photo_analyzer.py --dir ./photos --target 小美 --output report.m
 - **C-8** 暧昧期停滞 → 破局三法
 - **C-9** 误会/争吵 → 修复话术框架
 - **C-10** 单方面付出 → 停止主动观察法
+- **C-11** 对方开始了新感情 → 72小时情绪处理 + 两条路线选择
 
 ---
 
