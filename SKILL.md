@@ -341,6 +341,33 @@ crushes/{slug}/
 
 ---
 
+## 记忆操作协议
+
+每条指令执行时，按以下规则读取和写入档案文件。读取优先级：`profile.md`（每次必读）→ `state.md`（每次必读）→ `events.jsonl` 最近5条（按需）→ `strategy.md`（按需）。
+
+| 指令 | 必读文件 | 写入文件 |
+|------|---------|---------|
+| `/simp create` | — | `profile.md`（新建）、`state.md`（空模板）、`events.jsonl`（新建）、`meta.json`（新建） |
+| `/simp analyze` | `profile.md`、`state.md` | `state.md`（覆盖）、`events.jsonl`（追加 `signal_recorded` + `analysis_done`，若阶段变化追加 `stage_changed`） |
+| `/simp message` | `profile.md`、`state.md`、`strategy.md` | — |
+| `/simp progress` | `profile.md`、`state.md`、`events.jsonl` 最近5条 | `state.md`（覆盖）、`events.jsonl`（追加 `progress_evaluated`）、`meta.json`（更新 score/stage） |
+| `/simp update` | `profile.md` | `profile.md`（更新 frontmatter 字段）、`events.jsonl`（追加 `profile_updated`） |
+| `/simp confess` | `profile.md`、`state.md`、`strategy.md` | `events.jsonl`（追加 `confess_prepared`） |
+| `/simp crisis` | `profile.md`、`state.md` | `state.md`（更新状态）、`events.jsonl`（追加 `crisis_handled`） |
+| `/simp daily` | `state.md` | — |
+| `/simp quit` | `profile.md`、`state.md`、`events.jsonl` 全部 | `events.jsonl`（追加 `quit_evaluated`） |
+| `/simp list` | 所有档案的 `meta.json` | — |
+
+**`events.jsonl` 写入格式**（每行一条，只追加不删除）：
+
+```json
+{"ts": "2026-04-24T10:30:00", "v": 1, "type": "signal_recorded", "slug": "{slug}", "data": {}}
+```
+
+`data` 必填字段见 `docs/MEM-SYS.md` 事件类型字典。
+
+---
+
 ## 运行规则
 
 1. **永远问清楚情境再生成**：不要用猜的，追问用户的心上人是什么性格、你们现在什么阶段
