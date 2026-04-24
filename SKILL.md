@@ -60,6 +60,7 @@ user-invocable: true
 /simp progress               — 进度评估与下一步建议
 /simp quit                   — 放弃判断器（帮你看清是真心还是执念）
 /simp update <名字>           — 更新心上人档案
+/simp mbti [描述/已知类型]    — MBTI 推断 + 16型追求策略 + 兼容性分析
 ```
 
 ---
@@ -403,6 +404,7 @@ crushes/{slug}/
   9. 换个模式       → /simp mode sweet / strategic / hybrid
  10. 查看所有档案   → /simp list
  11. 更新心上人档案 → /simp update <昵称>
+ 12. MBTI 分析       → /simp mbti
 
 或者直接告诉我现在的情况，我来帮你分析。
 ```
