@@ -19,15 +19,15 @@ Step 5: 生成下一步行动
 
 ## Step 1：读取档案与历史记录
 
-读取 `crushes/{slug}/profile.md` 和 `crushes/{slug}/strategy.md`。
+读取顺序：`crushes/{slug}/profile.md`（必读）→ `crushes/{slug}/state.md`（必读）→ `crushes/{slug}/events.jsonl` 最近 5 条。
 
 若无档案：
 > "还没有建立档案。先运行 `/simp create <名字>` 建立一个，再来看进度。"
 
-若有档案但超过 14 天未更新，提醒：
+若有档案但 `state.md` 中 `last_updated` 超过 14 天，提醒：
 > "档案上次更新是 {日期}，已经 {N} 天了。有什么新情况要先补充吗？（运行 `/simp update` 或直接告诉我）"
 
-若有 `memories/log.md`，提取最近 3 条互动记录用于分析。若无，依赖用户描述或最近的 `/simp analyze` 结果。
+从 `state.md` 提取当前阶段、评分、最近信号（最新3条）。从 `events.jsonl` 最近 5 条中提取 `analysis_done` / `progress_evaluated` 类型事件，用于计算热度变化趋势。
 
 ---
 
@@ -64,12 +64,16 @@ Step 5: 生成下一步行动
 若无近期信号数据，提示：
 > "距离上次完整分析有段时间了，给我描述最近两周的互动情况，我来重新打分。"
 
-### 热度变化趋势（若有历史记录）
+### 热度变化趋势（从 events.jsonl 中提取）
+
+从 `events.jsonl` 中找最近两条 `analysis_done` 或 `progress_evaluated` 事件，对比 `data.score` 字段：
 
 | 时间 | 分数 | 主要变化 |
 |------|------|---------|
-| {上次} | {分} | {关键事件} |
-| {本次} | {分} | {关键变化} |
+| {上次 ts[:10]} | {data.score} | {data.summary 或 data.next_actions[0]} |
+| {本次 ts[:10]} | {data.score} | {data.summary 或 data.next_actions[0]} |
+
+若 `events.jsonl` 中无历史评分，则从 `state.md` 的 `last_signal_score` / `score_trend` 字段获取趋势方向。
 
 趋势解读：
 - 上升 ≥ 3 分：关系在明显升温，继续保持节奏

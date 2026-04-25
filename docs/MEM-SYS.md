@@ -330,20 +330,20 @@ def rebuild_state_from_events(
 - [x] 扩展 `meta.json` schema — 新增字段
 - [x] 更新测试
 
-### Phase 2：memory.py 工具
-- [ ] 实现 `append_event()`
-- [ ] 实现 `get_recent_events()`
-- [ ] 实现 `update_state()`
-- [ ] 实现 `load_context()`
-- [ ] 实现 `take_snapshot()`
-- [ ] 实现 `rebuild_state_from_events()`
-- [ ] CLI 入口
+### Phase 2：memory.py 工具 ✅
+- [x] 实现 `append_event()`
+- [x] 实现 `get_recent_events()`
+- [x] 实现 `update_state()`
+- [x] 实现 `load_context()`
+- [x] 实现 `take_snapshot()`
+- [x] 实现 `rebuild_state_from_events()`
+- [x] CLI 入口
 - [ ] 完整测试覆盖
 
-### Phase 3：SKILL.md 集成
-- [ ] 新增「记忆操作协议」章节
-- [ ] 每条指令补充 Memory Protocol 说明
-- [ ] `progress_tracker.md` 更新读取路径
+### Phase 3：SKILL.md 集成 ✅
+- [x] 新增「记忆操作协议」章节
+- [x] 每条指令补充 Memory Protocol 说明
+- [x] `progress_tracker.md` 更新读取路径
 
 ### Phase 4：迁移工具
 - [ ] `tools/migrate.py` — 为已有 `profile.md` 添加 YAML frontmatter
