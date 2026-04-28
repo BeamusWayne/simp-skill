@@ -35,6 +35,8 @@ Feed it your chat logs, social media, and photos. Get a signal analysis report b
 | 💌 **Confession Writing** | Craft a confession that feels true to you and resonates with them |
 | 🆘 **Crisis Handling** | Got rejected, ghosted, friend-zoned, or said something wrong? There's a plan for that |
 | 📊 **Chat Analysis** | Parse WeChat/QQ history to quantify relationship temperature with real data |
+| 🧬 **MBTI Analysis** | Infer their MBTI from behavior, get type-specific pursuit strategy and compatibility read |
+| 📈 **Progress Tracking** | Stage progress bar + score trend comparison so you can see the relationship arc over time |
 | 🍃 **Quit Judge** | Figure out if it's real love or just pride — and whether to keep going or let go |
 
 ---
@@ -123,6 +125,7 @@ python3 tools/photo_analyzer.py --dir ./photos --target Emma --output report.md
 | `/simp mode strategic` | Switch to Strategic Mode 🎯 |
 | `/simp mode hybrid` | Switch to Hybrid Mode ✨ (default) |
 | `/simp update <name>` | Update a crush profile |
+| `/simp mbti [desc/type]` | MBTI inference + 16-type pursuit strategy + compatibility |
 
 ---
 
@@ -170,15 +173,20 @@ Score interpretation:
 ```
 crushes/
 └── {slug}/
-    ├── profile.md          — Basic info and persona
+    ├── profile.md          — Basic info and persona (YAML frontmatter + narrative)
+    ├── state.md            — Current snapshot (stage, score, recent signals, next steps)
+    ├── events.jsonl        — Append-only event stream (the pursuit timeline)
     ├── strategy.md         — Personalized pursuit strategy
-    ├── meta.json           — Metadata (stage / score / mode)
+    ├── meta.json           — Metadata (stage / score / mode / event count)
+    ├── snapshots/          — Daily snapshots (cross-session quick recovery)
     ├── versions/           — Version history backups
     └── memories/
         ├── chats/          — Parsed chat analysis
         ├── social/         — Social media content (screenshots / exports)
         └── photos/         — Photos (EXIF analysis / meetup detection)
 ```
+
+> Memory system design and read/write protocol: see [docs/MEM-SYS.md](docs/MEM-SYS.md).
 
 ---
 
@@ -199,6 +207,25 @@ python3 tools/skill_writer.py --action versions --slug emma
 
 # Rollback to a version
 python3 tools/skill_writer.py --action rollback --slug emma --version v2
+```
+
+### Memory System Tools
+
+```bash
+# Append an event
+python3 tools/memory.py append emma signal_recorded '{"direction":"green","content":"late-night message","score_delta":3}'
+
+# View the last 5 events
+python3 tools/memory.py events emma --last 5
+
+# Assemble current context (profile + state, ready to inject into Claude)
+python3 tools/memory.py context emma
+
+# Take today's snapshot
+python3 tools/memory.py snapshot emma
+
+# View the full timeline
+python3 tools/memory.py timeline emma
 ```
 
 ---

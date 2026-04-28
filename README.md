@@ -36,6 +36,8 @@
 | 💌 **表白定制**  | 帮你准备让对方难忘的表白词           |
 | 🆘 **危机处理**  | 被拒/冷落/翻车/友谊区，每种危机都有应对方案 |
 | 📊 **聊天分析**  | 自动分析微信/QQ聊天记录，量化感情温度    |
+| 🧬 **MBTI 分析** | 推断心上人 MBTI，输出 16 型专属追求策略与双方兼容性 |
+| 📈 **进度追踪**  | 阶段进度条 + 热度趋势对比，每次都能看到关系变化曲线 |
 | 🍃 **放弃判断**  | 帮你看清是真心还是执念，该继续还是该放下   |
 
 
@@ -131,6 +133,7 @@ python3 tools/photo_analyzer.py --dir ./photos --target 小美 --output report.m
 | `/simp mode strategic` | 切换到策略模式 🎯    |
 | `/simp mode hybrid`    | 切换到混合模式 ✨（默认） |
 | `/simp update <名字>`    | 更新心上人档案       |
+| `/simp mbti [描述/类型]` | MBTI 推断 + 16 型追求策略 + 兼容性分析 |
 
 
 ---
@@ -156,15 +159,20 @@ python3 tools/photo_analyzer.py --dir ./photos --target 小美 --output report.m
 ```
 crushes/
 └── {slug}/
-    ├── profile.md          — 心上人基本信息与画像
+    ├── profile.md          — 心上人基本信息与画像（YAML frontmatter + 叙述）
+    ├── state.md            — 当前状态快照（阶段、评分、最近信号、下一步）
+    ├── events.jsonl        — 事件流，只追加，永不删除（追求轨迹）
     ├── strategy.md         — 个性化追求策略
-    ├── meta.json           — 档案元数据（阶段/评分/模式）
+    ├── meta.json           — 档案元数据（阶段/评分/模式/事件数）
+    ├── snapshots/          — 按日快照（用于跨会话快速恢复）
     ├── versions/           — 历史版本备份
     └── memories/
         ├── chats/          — 聊天记录分析结果
         ├── social/         — 社交媒体内容（截图/导出）
         └── photos/         — 照片（EXIF分析/约会检测）
 ```
+
+> 记忆系统设计与读写协议详见 [docs/MEM-SYS.md](docs/MEM-SYS.md)。
 
 ---
 
@@ -185,6 +193,25 @@ python3 tools/skill_writer.py --action versions --slug xiaomei
 
 # 回滚到某个版本
 python3 tools/skill_writer.py --action rollback --slug xiaomei --version v2
+```
+
+### 记忆系统工具
+
+```bash
+# 追加一条事件
+python3 tools/memory.py append xiaomei signal_recorded '{"direction":"green","content":"深夜主动消息","score_delta":3}'
+
+# 查看最近 5 条事件
+python3 tools/memory.py events xiaomei --last 5
+
+# 拼装当前上下文（profile + state，给 Claude 注入）
+python3 tools/memory.py context xiaomei
+
+# 生成今日快照
+python3 tools/memory.py snapshot xiaomei
+
+# 查看完整时间线
+python3 tools/memory.py timeline xiaomei
 ```
 
 ---

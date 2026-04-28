@@ -4,6 +4,45 @@
 
 ---
 
+## [1.6.0] - 2026-04-28
+
+### 新增
+- **防耗尽机制**：`prompts/daily_coach.md` 新增 Step 0「防耗尽预检」——根据 `events.jsonl` 最近 7 天的调用频率、焦虑词密度、单日重复次数、评分趋势、长期低位徘徊等 5 类信号判断，命中高风险时短路返回「劝歇」分支，要求用户停一停而不是给出更多追求建议。在用户坚持要继续时礼貌坚持一次再让步并加警告
+- `prompts/progress_tracker.md` 风险表新增「用户耗尽风险」一行，并在风险触发时输出预防性提示，引导用户运行 `/simp quit` 重新评估
+- `SKILL.md` 运行规则新增第 8 条「防耗尽优先」，将该机制提升为强制运行规则
+
+### 改进
+- `CHANGELOG.md`：补回此前漏写的 v1.4.0、v1.5.0 条目（Mem-Sys Phase 2+3、进度可视化、MBTI 系统）
+- `README.md` / `README_EN.md`：功能表新增「MBTI 分析」「进度追踪」两行；指令列表新增 `/simp mbti`；档案结构图同步到新的 Mem-Sys 结构（`state.md` / `events.jsonl` / `snapshots/`）；新增「记忆系统工具」CLI 速查段落，并链接 `docs/MEM-SYS.md`
+
+---
+
+## [1.5.0] - 2026-04-24
+
+### 新增
+- `prompts/mbti_analyzer.md`：MBTI 分析模块，对应 `/simp mbti` 指令。三段式输出：① 行为维度推断（E/I、N/S、T/F、J/P，每个维度给证据 + 置信度）② 16型专属追求策略（核心需求、推进节奏、雷区、试探方式）③ 双方兼容性分析（共振点、张力点、给到双方的建议）
+- `SKILL.md`：指令系统与主菜单新增 `/simp mbti [描述/已知类型]` 入口
+
+### 改进
+- `prompts/signal_reader.md` / `prompts/strategy_builder.md`：集成 MBTI 校正层。已知 MBTI 时，信号解读和策略生成自动套用对应 16 型偏好（例如 INTJ 不喜欢黏腻话术，ENFP 需要更高频的情绪共鸣）
+
+---
+
+## [1.4.0] - 2026-04-22
+
+### 新增
+- `tools/memory.py`：记忆系统核心模块（Mem-Sys Phase 2）。CLI 支持 `append` / `events` / `context` / `rebuild` / `snapshot` / `timeline`；Python API 暴露 `append_event` / `get_recent_events` / `load_context` / `update_state` / `take_snapshot` / `rebuild_state_from_events`
+- `tests/test_memory.py`：记忆系统测试套件
+- 档案新结构：每个 `crushes/{slug}/` 自动生成 `state.md`（动态层快照）、`events.jsonl`（不可变事件流）、`snapshots/`（按日存档）
+- `SKILL.md`：新增「记忆操作协议」章节，定义每条指令的读写规范（Mem-Sys Phase 3）
+
+### 改进
+- `prompts/progress_tracker.md`：进度可视化升级。输出新增阶段进度条（纯文本图示）和热度趋势对比，从 `state.md` + `events.jsonl` 读取历史数据，不再每次重新推断
+- `tools/skill_writer.py`：`init_crush()` 同步创建 state.md / events.jsonl / snapshots/，`meta.json` schema 扩展（新增 `nickname`、`event_count`、`last_snapshot`）
+- `docs/PRD.md`：补 v1.4 / v1.5 的 Roadmap 状态
+
+---
+
 ## [1.3.0] - 2026-04-16
 
 ### 新增
