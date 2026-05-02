@@ -338,16 +338,16 @@ def rebuild_state_from_events(
 - [x] 实现 `take_snapshot()`
 - [x] 实现 `rebuild_state_from_events()`
 - [x] CLI 入口
-- [ ] 完整测试覆盖
+- [x] 测试覆盖（见 `tests/test_memory.py`）
 
 ### Phase 3：SKILL.md 集成 ✅
 - [x] 新增「记忆操作协议」章节
 - [x] 每条指令补充 Memory Protocol 说明
 - [x] `progress_tracker.md` 更新读取路径
 
-### Phase 4：迁移工具
-- [ ] `tools/migrate.py` — 为已有 `profile.md` 添加 YAML frontmatter
-- [ ] 从现有 `meta.json` 生成初始 `events.jsonl`
+### Phase 4：迁移工具 · ❌ 不再计划
+
+早期阶段无存量用户档案，迁移工具的实际价值低于维护成本。新档案统一通过 `init_crush()` 创建，已自带 YAML frontmatter / `state.md` / `events.jsonl`，无需迁移。若未来出现存量数据需要升级，再单独立项。
 
 ---
 
@@ -355,9 +355,8 @@ def rebuild_state_from_events(
 
 ```
 tests/
-├── test_skill_writer.py   # 已有，补充新字段断言
-├── test_memory.py         # 新增（Phase 2）
-└── test_migrate.py        # 新增（Phase 4）
+├── test_skill_writer.py   # 已有，补充新字段断言 ✅
+└── test_memory.py         # 新增（Phase 2）✅
 ```
 
 ---
