@@ -881,6 +881,52 @@ def generate_report(messages: list, target_name: str, user_name: str, output_pat
 
 
 # ─────────────────────────────────────────────
+# 互动时间数据提取
+# ─────────────────────────────────────────────
+
+def extract_time_data(
+    messages: list,
+    target_name: str,
+    user_name: str,
+    slug: str,
+    base_dir: Path | None = None,
+) -> int:
+    from tools.time_tracker import record_interaction, DEFAULT_BASE_DIR as TRACKER_BASE
+
+    if base_dir is None:
+        base_dir = TRACKER_BASE
+
+    written = 0
+    for i, msg in enumerate(messages):
+        content_summary = msg.content[:50].replace("\n", " ")
+        sender = msg.sender
+
+        if target_name in sender:
+            interaction_type = "chat_received"
+            data: dict = {"content_summary": content_summary}
+        elif user_name in sender:
+            interaction_type = "chat_sent"
+            data = {"content_summary": content_summary}
+        else:
+            continue
+
+        if i > 0:
+            prev = messages[i - 1]
+            delay_min = (msg.timestamp - prev.timestamp).total_seconds() / 60
+            if delay_min <= 240 and prev.sender != msg.sender:
+                if interaction_type == "chat_received":
+                    data["reply_delay_min"] = round(delay_min)
+
+        try:
+            record_interaction(slug, interaction_type, data, ts=msg.timestamp, base_dir=base_dir)
+            written += 1
+        except (FileNotFoundError, ValueError):
+            continue
+
+    return written
+
+
+# ─────────────────────────────────────────────
 # 主程序
 # ─────────────────────────────────────────────
 
@@ -901,6 +947,9 @@ def main():
     parser.add_argument("--output", "-o", help="输出文件路径（默认：打印到控制台）")
     parser.add_argument("--format", "-f", choices=["wechat_txt", "qq_txt", "qq_mht", "wechat_html", "wechat_csv", "json"],
                         help="强制指定格式（默认：自动检测）")
+    parser.add_argument("--track-time", action="store_true",
+                        help="同时将互动时间数据写入 interactions.jsonl")
+    parser.add_argument("--slug", help="档案 slug（--track-time 时必需）")
 
     args = parser.parse_args()
 
@@ -931,6 +980,14 @@ def main():
     print()
 
     report = generate_report(messages, args.target, args.user, args.output)
+
+    if args.track_time:
+        if not args.slug:
+            print("--track-time 需要 --slug 参数指定档案名")
+            sys.exit(1)
+        from tools.chat_parser import extract_time_data
+        count = extract_time_data(messages, args.target, args.user, args.slug)
+        print(f"已写入 {count} 条互动时间记录")
 
     if not args.output:
         print(report)
