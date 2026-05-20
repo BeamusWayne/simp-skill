@@ -464,6 +464,89 @@ def analyze_milestones(
     }
 
 
+def _bar(pct: float, width: int = 20) -> str:
+    filled = int(pct / 100 * width)
+    return "█" * filled + "░" * (width - filled)
+
+
+def _format_frequency(tl: dict, freq: dict) -> str:
+    lines = [
+        "📊 互动频率分析",
+        f"  总互动次数: {tl['total']}",
+        f"  活跃天数: {tl['active_days']}/{tl['total_days']}",
+        f"  连续互动: 当前 {tl['current_streak']} 天 | 最长 {tl['max_streak']} 天",
+        f"  主动比例: {tl['user_ratio']}%",
+        "",
+        "  时段分布:",
+    ]
+    by_hour = freq.get("by_hour", {})
+    max_count = max(by_hour.values()) if by_hour else 1
+    for hour in range(24):
+        count = by_hour.get(hour, 0)
+        if count > 0:
+            bar_width = int(count / max_count * 15)
+            lines.append(f"    {hour:02d}:00  {'█' * bar_width} ({count})")
+    return "\n".join(lines)
+
+
+def _format_milestones(ms: dict) -> str:
+    if not ms["stages"]:
+        return "🎯 追求进度追踪\n  暂无阶段数据"
+    lines = [
+        "🎯 追求进度追踪",
+        f"  总天数: {ms['total_days']} 天",
+        "",
+    ]
+    for stage in ms["stages"]:
+        status_icon = {"fast": "⚡", "normal": "✅", "slow": "🐌"}.get(stage["status"], "❓")
+        end_str = stage["end"] or "进行中"
+        baseline_str = f"(基线 {stage['baseline_lo']}-{stage['baseline_hi']} 天)" if stage["baseline_lo"] > 0 else ""
+        lines.append(f"  {status_icon} {stage['name']}: {stage['days']} 天 {baseline_str}")
+        lines.append(f"     {stage['start']} → {end_str}")
+    return "\n".join(lines)
+
+
+def _format_reply(rt: dict) -> str:
+    if rt["total_replies"] == 0:
+        return "⏱️  回复时间分析\n  暂无回复数据"
+    lines = [
+        "⏱️  回复时间分析",
+        f"  平均回复: {rt['average_min']:.0f} 分钟",
+        f"  中位回复: {rt['median_min']:.0f} 分钟",
+        "",
+        "  分布:",
+    ]
+    labels = {
+        "lte_5min": "≤5分钟",
+        "min_5_to_15": "5-15分钟",
+        "min_15_to_60": "15-60分钟",
+        "hr_1_to_4": "1-4小时",
+        "gt_4h": ">4小时",
+    }
+    for key, label in labels.items():
+        pct = rt["distribution"].get(key, 0)
+        lines.append(f"    {label:>8s}  {_bar(pct)} {pct:.0f}%")
+    return "\n".join(lines)
+
+
+def _format_golden(gh: dict) -> str:
+    if gh["peak_hour"] is None:
+        return "🌟 黄金时段建议\n  暂无数据"
+    lines = [
+        "🌟 黄金时段建议",
+        f"  最活跃时段: {gh['peak_hour']}:00",
+        "",
+        "  最佳发送窗口:",
+    ]
+    for w in gh["top_windows"]:
+        lines.append(f"    {w['hour']:02d}:00  ({w['count']} 次, {w['pct']:.0f}%)")
+    if gh["weekday_peak"] is not None:
+        lines.append(f"  工作日高峰: {gh['weekday_peak']}:00")
+    if gh["weekend_peak"] is not None:
+        lines.append(f"  周末高峰: {gh['weekend_peak']}:00")
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="simp-skill · 互动时间追踪")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -510,7 +593,40 @@ def main() -> None:
         logger.info("✅ 互动已记录：%s", args.type)
 
     elif args.cmd == "analyze":
-        logger.info("⏳ 分析功能将在后续任务中实现...")
+        slug = args.slug
+        base = Path(args.base_dir)
+        days = args.days
+
+        sections: list[str] = []
+
+        if args.frequency or not (args.frequency or args.milestones or args.reply or args.golden):
+            tl = analyze_timeline(slug, days=days, base_dir=base)
+            freq = get_interaction_frequency(slug, days=days, base_dir=base)
+            section = _format_frequency(tl, freq)
+            sections.append(section)
+
+        if args.milestones or not (args.frequency or args.milestones or args.reply or args.golden):
+            ms = analyze_milestones(slug, base_dir=base)
+            section = _format_milestones(ms)
+            sections.append(section)
+
+        if args.reply or not (args.frequency or args.milestones or args.reply or args.golden):
+            rt = analyze_reply_times(slug, days=days, base_dir=base)
+            section = _format_reply(rt)
+            sections.append(section)
+
+        if args.golden or not (args.frequency or args.milestones or args.reply or args.golden):
+            gh = analyze_golden_hours(slug, days=days, base_dir=base)
+            section = _format_golden(gh)
+            sections.append(section)
+
+        report = "\n\n".join(sections)
+
+        if args.output:
+            Path(args.output).write_text(report, encoding="utf-8")
+            logger.info("📊 报告已导出到 %s", args.output)
+        else:
+            print(report)
 
 
 if __name__ == "__main__":
