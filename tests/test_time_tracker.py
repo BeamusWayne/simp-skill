@@ -11,6 +11,8 @@ from tools.time_tracker import (
     get_reply_times,
     get_interaction_frequency,
     analyze_timeline,
+    analyze_reply_times,
+    analyze_golden_hours,
 )
 
 
@@ -211,3 +213,75 @@ class TestAnalyzeTimeline:
         result = analyze_timeline(slug, days=7, base_dir=base_dir)
         assert result["active_days"] == 5
         assert result["total_days"] == 7
+
+
+class TestAnalyzeReplyTimes:
+    def _seed_replies(self, base_dir: Path, slug: str) -> None:
+        delays = [2, 3, 5, 8, 12, 15, 25, 45, 90, 180, 300, 600, 1200]
+        for i, delay in enumerate(delays):
+            ts = datetime(2026, 5, 18 - i, 20, 0, 0)
+            record_interaction(
+                slug, "chat_received",
+                {"content_summary": f"reply {i}", "reply_delay_min": delay},
+                ts=ts, base_dir=base_dir,
+            )
+
+    def test_average_and_median(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        self._seed_replies(base_dir, slug)
+        result = analyze_reply_times(slug, days=30, base_dir=base_dir)
+        assert result["average_min"] > 0
+        assert result["median_min"] > 0
+
+    def test_distribution_buckets(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        self._seed_replies(base_dir, slug)
+        result = analyze_reply_times(slug, days=30, base_dir=base_dir)
+        dist = result["distribution"]
+        assert dist["lte_5min"] > 0
+        assert dist["gt_4h"] > 0
+        total_pct = sum(dist.values())
+        assert abs(total_pct - 100.0) < 1.0
+
+    def test_empty_data(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        result = analyze_reply_times(slug, days=30, base_dir=base_dir)
+        assert result["average_min"] is None
+        assert result["median_min"] is None
+
+
+class TestAnalyzeGoldenHours:
+    def _seed_hourly(self, base_dir: Path, slug: str) -> None:
+        for _ in range(8):
+            ts = datetime(2026, 5, 15, 21, 30, 0)
+            record_interaction(
+                slug, "chat_received",
+                {"content_summary": "night reply", "reply_delay_min": 5},
+                ts=ts, base_dir=base_dir,
+            )
+        for _ in range(3):
+            ts = datetime(2026, 5, 15, 12, 0, 0)
+            record_interaction(
+                slug, "chat_received",
+                {"content_summary": "lunch reply", "reply_delay_min": 10},
+                ts=ts, base_dir=base_dir,
+            )
+        ts = datetime(2026, 5, 15, 8, 0, 0)
+        record_interaction(
+            slug, "chat_received",
+            {"content_summary": "morning reply", "reply_delay_min": 15},
+            ts=ts, base_dir=base_dir,
+        )
+
+    def test_peak_hour(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        self._seed_hourly(base_dir, slug)
+        result = analyze_golden_hours(slug, days=30, base_dir=base_dir)
+        assert result["peak_hour"] == 21
+
+    def test_top_windows(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        self._seed_hourly(base_dir, slug)
+        result = analyze_golden_hours(slug, days=30, base_dir=base_dir)
+        assert len(result["top_windows"]) >= 1
+        assert result["top_windows"][0]["hour"] == 21
+
+    def test_empty_data(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        result = analyze_golden_hours(slug, days=30, base_dir=base_dir)
+        assert result["peak_hour"] is None
+        assert result["top_windows"] == []

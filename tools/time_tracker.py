@@ -245,6 +245,106 @@ def analyze_timeline(
     }
 
 
+_REPLY_BUCKETS = [
+    ("lte_5min", 0, 5),
+    ("min_5_to_15", 5, 15),
+    ("min_15_to_60", 15, 60),
+    ("hr_1_to_4", 60, 240),
+    ("gt_4h", 240, float("inf")),
+]
+
+
+def analyze_reply_times(
+    slug: str,
+    days: int = 30,
+    base_dir: Path = DEFAULT_BASE_DIR,
+) -> dict[str, Any]:
+    replies = get_reply_times(slug, days=days, base_dir=base_dir)
+
+    if not replies:
+        return {
+            "total_replies": 0,
+            "average_min": None,
+            "median_min": None,
+            "distribution": {},
+            "weekly_trend": [],
+        }
+
+    delays = [r["data"]["reply_delay_min"] for r in replies if "reply_delay_min" in r.get("data", {})]
+    if not delays:
+        return {
+            "total_replies": 0,
+            "average_min": None,
+            "median_min": None,
+            "distribution": {},
+            "weekly_trend": [],
+        }
+
+    average_min = round(sum(delays) / len(delays), 1)
+    sorted_delays = sorted(delays)
+    median_min = sorted_delays[len(sorted_delays) // 2]
+
+    bucket_counts: dict[str, int] = {label: 0 for label, _, _ in _REPLY_BUCKETS}
+    for d in delays:
+        for label, lo, hi in _REPLY_BUCKETS:
+            if lo <= d < hi:
+                bucket_counts[label] += 1
+                break
+
+    total = len(delays)
+    distribution = {label: round(count / total * 100, 1) for label, count in bucket_counts.items()}
+
+    return {
+        "total_replies": total,
+        "average_min": average_min,
+        "median_min": median_min,
+        "distribution": distribution,
+        "weekly_trend": [],
+    }
+
+
+def analyze_golden_hours(
+    slug: str,
+    days: int = 30,
+    base_dir: Path = DEFAULT_BASE_DIR,
+) -> dict[str, Any]:
+    received = get_interactions(slug, days=days, types=["chat_received"], base_dir=base_dir)
+
+    if not received:
+        return {"peak_hour": None, "top_windows": [], "weekday_peak": None, "weekend_peak": None}
+
+    hour_counts: dict[int, int] = {}
+    weekday_hours: dict[int, int] = {}
+    weekend_hours: dict[int, int] = {}
+
+    for r in received:
+        data = r.get("data", {})
+        hour = data.get("hour")
+        dow = data.get("day_of_week", "")
+        if hour is None:
+            continue
+        hour_counts[hour] = hour_counts.get(hour, 0) + 1
+        if dow in ("sat", "sun"):
+            weekend_hours[hour] = weekend_hours.get(hour, 0) + 1
+        else:
+            weekday_hours[hour] = weekday_hours.get(hour, 0) + 1
+
+    peak_hour = max(hour_counts, key=hour_counts.get) if hour_counts else None
+
+    sorted_hours = sorted(hour_counts.items(), key=lambda x: -x[1])
+    top_windows = [{"hour": h, "count": c, "pct": round(c / len(received) * 100, 1)} for h, c in sorted_hours[:3]]
+
+    weekday_peak = max(weekday_hours, key=weekday_hours.get) if weekday_hours else None
+    weekend_peak = max(weekend_hours, key=weekend_hours.get) if weekend_hours else None
+
+    return {
+        "peak_hour": peak_hour,
+        "top_windows": top_windows,
+        "weekday_peak": weekday_peak,
+        "weekend_peak": weekend_peak,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="simp-skill · 互动时间追踪")
     sub = parser.add_subparsers(dest="cmd", required=True)
