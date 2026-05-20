@@ -328,3 +328,39 @@ class TestAnalyzeMilestones:
         from tools.time_tracker import analyze_milestones
         result = analyze_milestones(slug, base_dir=base_dir)
         assert result["total_days"] >= 22
+
+
+class TestIntegration:
+    def test_full_workflow(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        now = datetime.now()
+        for day in range(7):
+            ts_sent = now - timedelta(days=day, hours=3, minutes=0)
+            ts_sent = ts_sent.replace(second=0, microsecond=0)
+            record_interaction(slug, "chat_sent", {"content_summary": f"msg d-{day}"}, ts=ts_sent, base_dir=base_dir)
+            ts_recv = now - timedelta(days=day, hours=2, minutes=55 - (5 + day))
+            ts_recv = ts_recv.replace(second=0, microsecond=0)
+            record_interaction(
+                slug, "chat_received",
+                {"content_summary": f"reply d-{day}", "reply_delay_min": 5 + day},
+                ts=ts_recv, base_dir=base_dir,
+            )
+
+        meeting_day = now - timedelta(days=4)
+        ts_meeting = meeting_day.replace(hour=19, minute=0, second=0, microsecond=0)
+        record_interaction(
+            slug, "meeting",
+            {"duration_min": 120, "activity": "coffee"},
+            ts=ts_meeting, base_dir=base_dir,
+        )
+
+        tl = analyze_timeline(slug, days=30, base_dir=base_dir)
+        assert tl["total"] == 15
+
+        rt = analyze_reply_times(slug, days=30, base_dir=base_dir)
+        assert rt["average_min"] is not None
+
+        gh = analyze_golden_hours(slug, days=30, base_dir=base_dir)
+        assert gh["peak_hour"] is not None
+
+        meta = json.loads((crush_dir / "meta.json").read_text(encoding="utf-8"))
+        assert meta["interaction_count"] == 15
