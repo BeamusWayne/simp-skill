@@ -61,6 +61,7 @@ user-invocable: true
 /simp quit                   — 放弃判断器（帮你看清是真心还是执念）
 /simp update <名字>           — 更新心上人档案
 /simp mbti [描述/已知类型]    — MBTI 推断 + 16型追求策略 + 兼容性分析
+/simp timeline [slug] [--frequency|--milestones|--reply|--golden] [--output file.md] — 互动时间分析 — 频率、阶段时长、回复速度、黄金时段
 ```
 
 ---
@@ -77,6 +78,7 @@ crushes/{slug}/
 │   ├── chats/      — 解析后的聊天记录
 │   ├── social/     — 社交媒体内容
 │   └── photos/     — 照片元数据分析
+├── interactions.jsonl — 互动时间记录（聊天频率、回复速度、时间段）
 └── meta.json       — 档案元数据
 ```
 
@@ -348,7 +350,7 @@ crushes/{slug}/
 
 | 指令 | 必读文件 | 写入文件 |
 |------|---------|---------|
-| `/simp create` | — | `profile.md`（新建）、`state.md`（空模板）、`events.jsonl`（新建）、`meta.json`（新建） |
+| `/simp create` | — | `profile.md`（新建）、`state.md`（空模板）、`events.jsonl`（新建）、`interactions.jsonl`（新建）、`meta.json`（新建） |
 | `/simp analyze` | `profile.md`、`state.md` | `state.md`（覆盖）、`events.jsonl`（追加 `signal_recorded` + `analysis_done`，若阶段变化追加 `stage_changed`） |
 | `/simp message` | `profile.md`、`state.md`、`strategy.md` | — |
 | `/simp progress` | `profile.md`、`state.md`、`events.jsonl` 最近5条 | `state.md`（覆盖）、`events.jsonl`（追加 `progress_evaluated`）、`meta.json`（更新 score/stage） |
@@ -358,6 +360,7 @@ crushes/{slug}/
 | `/simp daily` | `state.md` | — |
 | `/simp quit` | `profile.md`、`state.md`、`events.jsonl` 全部 | `events.jsonl`（追加 `quit_evaluated`） |
 | `/simp list` | 所有档案的 `meta.json` | — |
+| `/simp timeline` | `interactions.jsonl`、`meta.json`、`events.jsonl`、`profile.md` | — (只读分析，工具: `python3 tools/time_tracker.py analyze {slug}`) |
 
 **`events.jsonl` 写入格式**（每行一条，只追加不删除）：
 
