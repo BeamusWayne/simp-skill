@@ -16,6 +16,10 @@ venv/
 # macOS
 .DS_Store
 
+# 开发计划与设计文档（本地）
+# Dev plans and specs. Not for upload.
+docs/superpowers/
+
 # 编辑器
 .vscode/
 .idea/
