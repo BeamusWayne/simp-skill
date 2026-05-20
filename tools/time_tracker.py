@@ -345,6 +345,125 @@ def analyze_golden_hours(
     }
 
 
+_STAGE_BASELINES: dict[str, tuple[int, int]] = {
+    "破冰期": (7, 14),
+    "升温期": (10, 21),
+    "暧昧期": (14, 35),
+    "表白前": (7, 21),
+    "表白后-成功": (0, 0),
+}
+
+
+def analyze_milestones(
+    slug: str,
+    base_dir: Path = DEFAULT_BASE_DIR,
+) -> dict[str, Any]:
+    crush_dir = base_dir / slug
+
+    profile_path = crush_dir / "profile.md"
+    if not profile_path.exists():
+        return {"stages": [], "total_days": 0}
+
+    profile_text = profile_path.read_text(encoding="utf-8")
+    created_at_str: str | None = None
+    if profile_text.startswith("---"):
+        parts = profile_text.split("---", 2)
+        if len(parts) >= 3:
+            for line in parts[1].strip().splitlines():
+                if line.strip().startswith("created_at:"):
+                    created_at_str = line.split(":", 1)[1].strip().strip('"').strip("'")
+                    break
+
+    if not created_at_str:
+        return {"stages": [], "total_days": 0}
+
+    try:
+        created_at = datetime.strptime(created_at_str[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return {"stages": [], "total_days": 0}
+
+    events_path = crush_dir / "events.jsonl"
+    stage_transitions: list[dict[str, Any]] = []
+    if events_path.exists():
+        for line in events_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                event = json.loads(stripped)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "stage_changed":
+                ts_str = event.get("ts", "")[:10]
+                try:
+                    ts_date = datetime.strptime(ts_str, "%Y-%m-%d").date()
+                except ValueError:
+                    continue
+                stage_transitions.append({
+                    "date": ts_date,
+                    "from": event.get("data", {}).get("from", ""),
+                    "to": event.get("data", {}).get("to", ""),
+                })
+
+    today = datetime.now().date()
+    total_days = (today - created_at).days
+
+    stages: list[dict[str, Any]] = []
+    prev_date = created_at
+
+    for i, transition in enumerate(stage_transitions):
+        days_in_stage = (transition["date"] - prev_date).days
+        stage_name = transition["from"]
+        baseline_lo, baseline_hi = _STAGE_BASELINES.get(stage_name, (0, 0))
+
+        status = "normal"
+        if baseline_lo > 0 and days_in_stage > baseline_hi:
+            status = "slow"
+        elif baseline_lo > 0 and days_in_stage < baseline_lo:
+            status = "fast"
+
+        stages.append({
+            "name": stage_name,
+            "start": prev_date.isoformat(),
+            "end": transition["date"].isoformat(),
+            "days": days_in_stage,
+            "baseline_lo": baseline_lo,
+            "baseline_hi": baseline_hi,
+            "status": status,
+        })
+        prev_date = transition["date"]
+
+    if stage_transitions:
+        current_stage_name = stage_transitions[-1]["to"]
+    else:
+        current_stage_name = "破冰期"
+
+    current_days = (today - prev_date).days
+    baseline_lo, baseline_hi = _STAGE_BASELINES.get(current_stage_name, (0, 0))
+
+    current_status = "normal"
+    if baseline_lo > 0 and current_days > baseline_hi:
+        current_status = "slow"
+    elif baseline_lo > 0 and current_days < baseline_lo:
+        current_status = "fast"
+
+    stages.append({
+        "name": current_stage_name,
+        "start": prev_date.isoformat(),
+        "end": None,
+        "days": current_days,
+        "baseline_lo": baseline_lo,
+        "baseline_hi": baseline_hi,
+        "status": current_status,
+    })
+
+    return {
+        "stages": stages,
+        "total_days": total_days,
+        "created_at": created_at.isoformat(),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="simp-skill · 互动时间追踪")
     sub = parser.add_subparsers(dest="cmd", required=True)

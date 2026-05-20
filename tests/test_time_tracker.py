@@ -285,3 +285,46 @@ class TestAnalyzeGoldenHours:
         result = analyze_golden_hours(slug, days=30, base_dir=base_dir)
         assert result["peak_hour"] is None
         assert result["top_windows"] == []
+
+
+class TestAnalyzeMilestones:
+    def _seed_profile_and_events(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        (crush_dir / "profile.md").write_text(
+            "---\nnickname: 小雨\nslug: testcrush\ncreated_at: \"2026-04-10\"\n---\n\n## 性格画像\n\ntest\n",
+            encoding="utf-8",
+        )
+        events_path = crush_dir / "events.jsonl"
+        events = [
+            {"ts": "2026-04-10T14:00:00", "v": 1, "type": "profile_created", "slug": slug, "data": {"nickname": "小雨"}},
+            {"ts": "2026-04-18T10:00:00", "v": 1, "type": "stage_changed", "slug": slug, "data": {"from": "破冰期", "to": "升温期", "trigger": "test"}},
+            {"ts": "2026-05-02T10:00:00", "v": 1, "type": "stage_changed", "slug": slug, "data": {"from": "升温期", "to": "暧昧期", "trigger": "test"}},
+        ]
+        with events_path.open("w", encoding="utf-8") as f:
+            for e in events:
+                f.write(json.dumps(e, ensure_ascii=False) + "\n")
+
+    def test_stage_durations(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        self._seed_profile_and_events(crush_dir, base_dir, slug)
+        from tools.time_tracker import analyze_milestones
+        result = analyze_milestones(slug, base_dir=base_dir)
+        stages = result["stages"]
+        assert len(stages) >= 2
+        assert stages[0]["name"] == "破冰期"
+        assert stages[0]["days"] == 8
+        assert stages[1]["name"] == "升温期"
+        assert stages[1]["days"] == 14
+
+    def test_baseline_comparison(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        self._seed_profile_and_events(crush_dir, base_dir, slug)
+        from tools.time_tracker import analyze_milestones
+        result = analyze_milestones(slug, base_dir=base_dir)
+        for stage in result["stages"]:
+            assert "baseline_lo" in stage
+            assert "baseline_hi" in stage
+            assert "status" in stage
+
+    def test_total_days(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        self._seed_profile_and_events(crush_dir, base_dir, slug)
+        from tools.time_tracker import analyze_milestones
+        result = analyze_milestones(slug, base_dir=base_dir)
+        assert result["total_days"] >= 22
