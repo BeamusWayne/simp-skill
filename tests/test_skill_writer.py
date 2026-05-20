@@ -302,3 +302,23 @@ class TestUpdateMeta:
         assert meta["current_stage"] == "升温期"
         assert meta["signal_score"] == 12
         assert meta["slug"] == "xiaomei"
+
+
+# ---------------------------------------------------------------------------
+# init_crush time tracking (Task 5)
+# ---------------------------------------------------------------------------
+
+
+class TestInitCrushTimeTracking:
+    def test_creates_interactions_jsonl(self, tmp_base: Path) -> None:
+        init_crush("xiaomei", tmp_base)
+        interactions_path = tmp_base / "xiaomei" / "interactions.jsonl"
+        assert interactions_path.exists()
+        assert interactions_path.read_text(encoding="utf-8") == ""
+
+    def test_meta_json_has_time_tracking_fields(self, tmp_base: Path) -> None:
+        init_crush("xiaomei", tmp_base)
+        meta = json.loads((tmp_base / "xiaomei" / "meta.json").read_text(encoding="utf-8"))
+        assert meta["interaction_count"] == 0
+        assert meta["last_interaction"] is None
+        assert meta["consecutive_days"] == 0

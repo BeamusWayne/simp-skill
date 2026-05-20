@@ -96,6 +96,10 @@ def init_crush(slug: str, base_dir: Path = DEFAULT_BASE_DIR) -> None:
     if not events_path.exists():
         events_path.touch()
 
+    interactions_path = crush_dir / "interactions.jsonl"
+    if not interactions_path.exists():
+        interactions_path.touch()
+
     strategy_path = crush_dir / "strategy.md"
     if not strategy_path.exists():
         strategy_path.write_text(
@@ -125,6 +129,9 @@ def init_crush(slug: str, base_dir: Path = DEFAULT_BASE_DIR) -> None:
             "mode": "hybrid",
             "event_count": 0,
             "last_snapshot": None,
+            "interaction_count": 0,
+            "last_interaction": None,
+            "consecutive_days": 0,
         }
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
