@@ -1,7 +1,7 @@
 """tests/test_time_tracker.py — time_tracker.py 的 pytest 测试套件"""
 import json
 import pytest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from tools.time_tracker import (
@@ -10,6 +10,7 @@ from tools.time_tracker import (
     get_interactions,
     get_reply_times,
     get_interaction_frequency,
+    analyze_timeline,
 )
 
 
@@ -167,3 +168,46 @@ class TestGetReplyTimes:
         result = get_reply_times(slug, base_dir=base_dir)
         assert len(result) == 1
         assert result[0]["data"]["reply_delay_min"] == 5
+
+
+class TestAnalyzeTimeline:
+    def _seed_interactions(self, base_dir: Path, slug: str) -> None:
+        now = datetime.now()
+        for day_offset in range(7):
+            day = now - timedelta(days=day_offset)
+            ts = day.replace(hour=20, minute=0, second=0, microsecond=0)
+            if day_offset in (3, 5):
+                continue
+            record_interaction(slug, "chat_sent", {"content_summary": f"msg d-{day_offset}"}, ts=ts, base_dir=base_dir)
+            recv_ts = day.replace(hour=20, minute=10, second=0, microsecond=0)
+            record_interaction(
+                slug, "chat_received",
+                {"content_summary": f"reply d-{day_offset}", "reply_delay_min": 10},
+                ts=recv_ts, base_dir=base_dir,
+            )
+
+    def test_counts_total_interactions(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        self._seed_interactions(base_dir, slug)
+        result = analyze_timeline(slug, days=7, base_dir=base_dir)
+        assert result["total"] == 10
+
+    def test_consecutive_days(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        self._seed_interactions(base_dir, slug)
+        result = analyze_timeline(slug, days=7, base_dir=base_dir)
+        assert result["current_streak"] >= 2
+
+    def test_max_consecutive(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        self._seed_interactions(base_dir, slug)
+        result = analyze_timeline(slug, days=7, base_dir=base_dir)
+        assert result["max_streak"] >= 3
+
+    def test_initiator_ratio(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        self._seed_interactions(base_dir, slug)
+        result = analyze_timeline(slug, days=7, base_dir=base_dir)
+        assert result["user_ratio"] == 50.0
+
+    def test_active_days(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
+        self._seed_interactions(base_dir, slug)
+        result = analyze_timeline(slug, days=7, base_dir=base_dir)
+        assert result["active_days"] == 5
+        assert result["total_days"] == 7

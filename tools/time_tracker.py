@@ -174,7 +174,75 @@ def get_interaction_frequency(
     }
 
 
-# Analysis functions added in Tasks 2-4
+def analyze_timeline(
+    slug: str,
+    days: int = 30,
+    base_dir: Path = DEFAULT_BASE_DIR,
+) -> dict[str, Any]:
+    interactions = get_interactions(slug, days=days, base_dir=base_dir)
+
+    if not interactions:
+        return {
+            "total": 0,
+            "active_days": 0,
+            "total_days": days,
+            "current_streak": 0,
+            "max_streak": 0,
+            "user_ratio": 0.0,
+        }
+
+    active_dates: set[str] = set()
+    user_count = 0
+    them_count = 0
+
+    for interaction in interactions:
+        ts_str = interaction.get("ts", "")[:10]
+        if ts_str:
+            active_dates.add(ts_str)
+        data = interaction.get("data", {})
+        if data.get("is_initiator") is True:
+            user_count += 1
+        elif data.get("is_initiator") is False:
+            them_count += 1
+
+    sorted_dates = sorted(active_dates)
+    max_streak = 1
+    current_streak = 1
+
+    for i in range(1, len(sorted_dates)):
+        prev = datetime.strptime(sorted_dates[i - 1], "%Y-%m-%d").date()
+        curr = datetime.strptime(sorted_dates[i], "%Y-%m-%d").date()
+        if (curr - prev).days == 1:
+            current_streak += 1
+            max_streak = max(max_streak, current_streak)
+        else:
+            current_streak = 1
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    if sorted_dates and sorted_dates[-1] == today:
+        display_streak = current_streak
+    elif sorted_dates:
+        last_date = datetime.strptime(sorted_dates[-1], "%Y-%m-%d").date()
+        if (datetime.now().date() - last_date).days == 1:
+            display_streak = current_streak
+        else:
+            display_streak = 0
+    else:
+        display_streak = 0
+
+    total = len(interactions)
+    user_ratio = round(user_count / total * 100, 1) if total else 0.0
+
+    return {
+        "total": total,
+        "active_days": len(active_dates),
+        "total_days": days,
+        "current_streak": display_streak,
+        "max_streak": max(max_streak, 1) if sorted_dates else 0,
+        "user_count": user_count,
+        "them_count": them_count,
+        "user_ratio": user_ratio,
+    }
 
 
 def main() -> None:
