@@ -183,4 +183,3 @@ def validate_record(record: dict) -> None:
         msg = Message.from_dict(data["message"])
         if msg.source_refs != record["source_refs"]:
             raise ValueError("message provenance must match observation provenance")
-
