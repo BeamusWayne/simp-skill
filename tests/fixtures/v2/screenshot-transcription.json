@@ -1,0 +1,25 @@
+{
+  "synthetic": true,
+  "is_actual_image": false,
+  "scope": "识读结果夹具，不检验视觉识别准确率",
+  "regions": [
+    {
+      "region": "right:1",
+      "sender_role": "user",
+      "content": "我喜欢你",
+      "confidence_issue": null
+    },
+    {
+      "region": "left:2",
+      "sender_role": "unknown",
+      "content": "[模糊]",
+      "confidence_issue": "cropped_sender_and_text"
+    },
+    {
+      "region": "left:3:quote",
+      "quoted_text": "我喜欢你",
+      "sender_role": "target",
+      "content": "这是你之前说的"
+    }
+  ]
+}

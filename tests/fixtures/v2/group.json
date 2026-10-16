@@ -1,0 +1,27 @@
+{
+  "accountId": "u",
+  "peerId": "t",
+  "conversationId": "group",
+  "conversationType": "group",
+  "messages": [
+    {
+      "localId": 1,
+      "senderId": "u",
+      "sender": "小美",
+      "content": "我想约你"
+    },
+    {
+      "localId": 2,
+      "senderId": "x",
+      "sender": "小美",
+      "content": "这是我替别人转述的",
+      "quoteId": 1
+    },
+    {
+      "localId": 3,
+      "senderId": "t",
+      "sender": "新昵称",
+      "content": "我只愿意做朋友"
+    }
+  ]
+}

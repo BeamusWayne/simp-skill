@@ -1,0 +1,22 @@
+{
+  "format": 1,
+  "note": "Synthetic case and fixture freeze. No model holdout runs yet.",
+  "sha256": {
+    "evals/cases.jsonl": "50b1a8af1e5b0d751d7915fab7f69c4a6517c6ddd886ee3363e6f297d1910a82",
+    "tests/fixtures/v2/direct.json": "b1a4e7ccdb687809092f8353c2a6cf042df82ba37f414fcaa2ef09a198325432",
+    "tests/fixtures/v2/group.json": "fe8ff005e0f48d94e9314a27c7d187d9d5b8cae01f458a9861348ea2d770c9a3",
+    "tests/fixtures/v2/legacy/events.jsonl": "6d44ec8bf8883bdad4656e2a0ba9a417ddd32a8e89d6836cd3324b3c84991a3d",
+    "tests/fixtures/v2/legacy/memories/chats/raw.txt": "506690500338cd03ab864aa195f40da20e6aa4df08fe210919bd757cafd78c53",
+    "tests/fixtures/v2/legacy/meta.json": "53656701328d5a97118afcb5724e41daff8f79b700a8f2c371eca17e95f5c249",
+    "tests/fixtures/v2/legacy/state.md": "00e602e732f5bfbef27a9d77715be9ae364f8ee5d033b80b960fdea4770e262d",
+    "tests/fixtures/v2/partial.jsonl": "15a35e7fde66f86b824a5deafd1c6e45482e926df46f32cd35b6f1669f1c0a14",
+    "tests/fixtures/v2/qq.mht": "2653f7ffa48f27503e54ad38907887bf2a1f4cba8251a0ffdfc5946343e53dd4",
+    "tests/fixtures/v2/qq.txt": "2afb9508279d894e083dd92f59d8c4668885cf4ab44e7b8323ea0359c62df4bf",
+    "tests/fixtures/v2/rejection-fast-reply.json": "d40d4451d5dcf540184bd551189d6a36adaae9125ec8559e77c3c5bf54a363ec",
+    "tests/fixtures/v2/roles.json": "a760bc9854180edd701a5519aedbea822acfd466be59dacd33976cdc14d1acf9",
+    "tests/fixtures/v2/screenshot-transcription.json": "657848740a2d24cb2f3fc848d48ed8863af1f2ee564a5a68bd7003eb9602bc93",
+    "tests/fixtures/v2/wechat.csv": "ec8fecbe1e54db7e3ecc0df8b0ebe4718cbb8b041d8d3abf844be6c419285f71",
+    "tests/fixtures/v2/wechat.html": "6a27ec22b9e5a56b41b72d2ff64d33218b096796bf032009852836f897b2e762",
+    "tests/fixtures/v2/wechat.txt": "32a6dcfd34bc863f5796c6980d5c284b3098015bf7b3a2df42e8ed110f89bed1"
+  }
+}

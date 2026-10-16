@@ -1,0 +1,26 @@
+{
+  "base_commit": "71f64215f50aeb5b619fb34fa44adb9247c85770",
+  "v1": {
+    "isSend_only_import_count": 0,
+    "explicit_rejection_fast_reply": {
+      "score": 19,
+      "max_score": 25,
+      "level": "🟢🟢🟢 强烈绿灯",
+      "key_signals": [
+        "🟢 ta主动开启 100.0% 的对话（强绿灯）",
+        "🟢 ta平均 30秒 回复你（很快）",
+        "🟢 ta发给你的消息比你的长（更用心）",
+        "🟢🟢 ta 6 次在深夜主动找你"
+      ],
+      "advice": "信号非常明显！是时候认真准备表白了。"
+    }
+  },
+  "v2": {
+    "isSend_only_import_count": 2,
+    "rejection_messages": 18,
+    "has_score": false,
+    "refusal_text_preserved": true,
+    "tool_recommends_confession": false
+  },
+  "scope": "Deterministic tools only. Not a model behavior evaluation."
+}
