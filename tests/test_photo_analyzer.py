@@ -281,3 +281,9 @@ class TestGenerateReport:
             with patch("tools.photo_analyzer.scan_photos", return_value=[]):
                 generate_report(str(tmp_path), "小美", str(out))
                 assert out.exists()
+
+
+def test_cluster_duration_does_not_wrap_after_one_day():
+    from tools.photo_analyzer import cluster_photo_sessions
+    photos=[photo('2024-01-01 10:00'),photo('2024-01-02 12:00')]
+    assert cluster_photo_sessions(photos,time_gap_hours=30)[0]['duration_min']==1560

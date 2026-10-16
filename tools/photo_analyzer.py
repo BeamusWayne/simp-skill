@@ -2,7 +2,7 @@
 """
 simp-skill · Photo Analyzer
 分析照片的 EXIF 元数据，提取拍摄时间线和地点信息，
-并检测可能的约会/见面记录（同地点+同时段的照片聚类）。
+并按时间与已知地点整理拍摄聚类；不推断见面或恋爱意愿。
 
 依赖：pip install Pillow
 
@@ -13,12 +13,16 @@ simp-skill · Photo Analyzer
   python3 photo_analyzer.py --dir ./photos --target 小美 --output report.md
 """
 
-import os
+import json
+import sys
 import argparse
 from pathlib import Path
 from datetime import datetime, timedelta
 from collections import defaultdict
 from typing import Optional
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tools.contracts import file_digest
 
 try:
     from PIL import Image
@@ -40,8 +44,8 @@ def get_exif_data(filepath: str) -> dict:
     if not PIL_AVAILABLE:
         return {}
     try:
-        img = Image.open(filepath)
-        raw_exif = img._getexif()
+        with Image.open(filepath) as img:
+            raw_exif = img._getexif()
         if not raw_exif:
             return {}
 
@@ -105,7 +109,7 @@ def get_gps(exif: dict) -> Optional[dict]:
 
 
 def get_make_model(exif: dict) -> str:
-    """提取相机型号（可判断是谁拍的）"""
+    """提取设备型号；型号不能确认拍摄者。"""
     make  = str(exif.get("Make",  "")).strip()
     model = str(exif.get("Model", "")).strip()
     if make and model:
@@ -166,15 +170,10 @@ def _gps_distance_km(a: dict, b: dict) -> float:
     return 6371 * 2 * math.asin(math.sqrt(a_))
 
 
-def detect_meetups(photos: list, time_gap_hours: float = 4.0, location_radius_km: float = 2.0) -> list:
-    """
-    检测可能的约会/见面记录：
-    - 在同一时间段（time_gap_hours 以内）
-    - 在同一地点附近（location_radius_km 以内）
-    的照片聚类 = 可能的一次见面
-
-    返回聚类列表，每个聚类代表一次可能的见面。
-    """
+def cluster_photo_sessions(photos: list, time_gap_hours: float = 4.0, location_radius_km: float = 2.0) -> list:
+    """Group nearby recorded times/locations; shared presence is not established."""
+    if time_gap_hours < 0 or location_radius_km < 0:
+        raise ValueError("Clustering windows must be nonnegative")
     timed = [p for p in photos if p["datetime"] is not None]
     if len(timed) < 2:
         return []
@@ -211,7 +210,7 @@ def detect_meetups(photos: list, time_gap_hours: float = 4.0, location_radius_km
             cluster.sort(key=lambda p: p["datetime"])
             start = cluster[0]["datetime"]
             end   = cluster[-1]["datetime"]
-            duration = (end - start).seconds // 60
+            duration = int((end - start).total_seconds() // 60)
 
             # 有 GPS 的取第一张的坐标
             gps_ref = next((p["gps"] for p in cluster if p["gps"]), None)
@@ -234,234 +233,56 @@ def detect_meetups(photos: list, time_gap_hours: float = 4.0, location_radius_km
 # 报告生成
 # ─────────────────────────────────────────────
 
-def generate_report(directory: str, target_name: str, output_path: str = None) -> str:
-    """生成完整的照片分析报告"""
+# Backward-compatible callable name; its result is only photo clusters.
+detect_meetups = cluster_photo_sessions
 
+
+def generate_report(directory: str, target_name: str, output_path=None, *, time_gap_hours=4.0, location_radius_km=2.0):
+    if output_path and Path(output_path).exists() and Path(output_path).suffix.lower() in PHOTO_EXTS:
+        raise ValueError("output must not overwrite a photo")
     if not PIL_AVAILABLE:
-        warn = (
-            "⚠️  未安装 Pillow，无法读取 EXIF 元数据。\n"
-            "请运行：pip install Pillow\n\n"
-            "安装后重新运行本工具以获取完整分析。"
-        )
-        if output_path:
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            Path(output_path).write_text(warn, encoding="utf-8")
-        return warn
-
-    photos  = scan_photos(directory)
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    lines = [
-        f"# 📷 照片元数据分析报告",
-        f"",
-        f"> 心上人：**{target_name}**  |  分析时间：{now_str}",
-        f"> 来源目录：`{directory}`",
-        f"",
-        f"---",
-        f"",
-    ]
-
-    if not photos:
-        lines += [
-            f"⚠️  未找到任何照片文件。",
-            f"",
-            f"请将照片（.jpg / .jpeg / .png / .heic）放入 `{directory}/` 后重新运行。",
-        ]
-        report = "\n".join(lines)
-        if output_path:
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            Path(output_path).write_text(report, encoding="utf-8")
-            print(f"✅ 报告已保存到 {output_path}")
-        return report
-
-    # 统计
-    with_time = [p for p in photos if p["datetime"]]
-    with_gps  = [p for p in photos if p["gps"]]
-
-    lines += [
-        f"## 📊 概览",
-        f"",
-        f"| 指标 | 数值 |",
-        f"|------|------|",
-        f"| 照片总数 | {len(photos)} 张 |",
-        f"| 包含拍摄时间 | {len(with_time)} 张 |",
-        f"| 包含 GPS 位置 | {len(with_gps)} 张 |",
-    ]
-
-    if with_time:
-        first = with_time[0]["datetime"]
-        last  = with_time[-1]["datetime"]
-        lines += [
-            f"| 最早照片 | {first.strftime('%Y-%m-%d')} |",
-            f"| 最新照片 | {last.strftime('%Y-%m-%d')} |",
-            f"| 时间跨度 | {(last - first).days} 天 |",
-        ]
-
-    lines.append(f"")
-
-    # ── 约会检测 ──────────────────────────────
-    meetups = detect_meetups(photos)
-
-    if meetups:
-        lines += [
-            f"---",
-            f"",
-            f"## 🗓️ 可能的见面记录（{len(meetups)} 次）",
-            f"",
-            f"> 以下是照片聚类检测到的时间+地点相近的拍摄记录，",
-            f"> 可能代表你们曾经在一起的时刻。",
-            f"",
-        ]
-
-        for i, meetup in enumerate(meetups, 1):
-            dur_str = f"{meetup['duration_min']}分钟内" if meetup["duration_min"] > 0 else "同一时刻"
-            gps_str = ""
-            if meetup["gps"]:
-                g = meetup["gps"]
-                gps_str = f"  📍 坐标：{g['lat']}, {g['lon']}"
-
-            lines += [
-                f"### 第 {i} 次  {meetup['date']}",
-                f"",
-                f"- 时间段：{meetup['start']} ～ {meetup['end']}（{dur_str}）",
-                f"- 照片数：{meetup['photo_count']} 张",
-            ]
-            if gps_str:
-                lines.append(gps_str)
-
-            lines.append(f"- 照片列表：")
-            for p in meetup["photos"][:5]:
-                t = p["datetime"].strftime("%H:%M") if p["datetime"] else "?"
-                lines.append(f"  - `{p['rel']}`（{t}）")
-            if len(meetup["photos"]) > 5:
-                lines.append(f"  - ... 共 {len(meetup['photos'])} 张")
-            lines.append(f"")
-
-        lines += [
-            f"**💡 使用建议**：",
-            f"将这些照片路径告诉 Claude，让它描述照片内容，",
-            f"从中挖掘可以用于情话的细节（场景、表情、你们的互动）。",
-            f"",
-        ]
+        report = "未安装 Pillow，无法读取 EXIF 元数据。安装后重新运行。"
     else:
-        if with_time:
-            lines += [
-                f"---",
-                f"",
-                f"## 🗓️ 见面检测",
-                f"",
-                f"未检测到明确的时间/地点聚类，可能原因：",
-                f"- 照片缺少 EXIF 时间信息（截图、社交媒体下载的图通常无 EXIF）",
-                f"- 照片拍摄时间间隔超过 4 小时",
-                f"- 缺少 GPS 数据导致位置无法比对",
-                f"",
-            ]
-
-    # ── 完整时间线 ────────────────────────────
-    if with_time:
-        lines += [
-            f"---",
-            f"",
-            f"## 📅 照片时间线",
-            f"",
-        ]
-
-        # 按月分组
-        monthly: dict = defaultdict(list)
-        for p in with_time:
-            key = p["datetime"].strftime("%Y年%m月")
-            monthly[key].append(p)
-
-        for month, month_photos in sorted(monthly.items()):
-            lines.append(f"### {month}（{len(month_photos)} 张）")
-            lines.append(f"")
-            for p in month_photos:
-                dt_str  = p["datetime"].strftime("%m-%d %H:%M")
-                cam_str = f"  📱 {p['camera']}" if p["camera"] else ""
-                gps_str = f"  📍 {p['gps']['lat']:.4f}, {p['gps']['lon']:.4f}" if p["gps"] else ""
-                lines.append(f"- `{p['rel']}`  🕐 {dt_str}{cam_str}{gps_str}")
-            lines.append(f"")
-
-    # ── 无时间信息的照片 ─────────────────────
-    no_time = [p for p in photos if not p["datetime"]]
-    if no_time:
-        lines += [
-            f"---",
-            f"",
-            f"## ❓ 无时间信息的照片（{len(no_time)} 张）",
-            f"",
-            f"> 这些照片缺少 EXIF 时间数据（常见于截图、从社交媒体保存的图片）。",
-            f"",
-        ]
-        for p in no_time:
-            lines.append(f"- `{p['rel']}`（{p['size_kb']} KB）")
-        lines.append(f"")
-
-    lines += [
-        f"---",
-        f"",
-        f"## 📌 后续建议",
-        f"",
-        f"1. **有见面记录**：把照片路径告诉 Claude，让它描述内容，",
-        f"   提取可以用于情话的具体细节",
-        f"2. **无 EXIF 数据**：说明照片可能来自网络/截图，",
-        f"   这类照片更适合直接给 Claude 看内容",
-        f"3. **结合聊天记录**：对比见面日期和聊天记录，",
-        f"   看看见面当天和之后的消息有没有温度变化",
-        f"",
-        f"---",
-        f"",
-        f"*由 simp-skill · 追爱军师 生成*",
-    ]
-
-    report = "\n".join(lines)
-
+        photos = scan_photos(directory)
+        lines = ["# 照片元数据分析报告", f"对象标签：{target_name}",
+                 "EXIF 可能缺失或被编辑；未提供时区的时间按原样展示。设备型号不能确认拍摄者。",
+                 "时间和地点相近的照片不证明双方见面，也不证明恋爱意愿。缺少 GPS 时仅按时间聚类。", ""]
+        if not photos:
+            lines.append("未找到任何照片。")
+        for photo in photos:
+            path = Path(photo["path"]).resolve()
+            if output_path and Path(output_path).resolve() == path:
+                raise ValueError("output must not overwrite a photo")
+            record = {**photo, "datetime": photo["datetime"].isoformat() if photo["datetime"] else None,
+                      "time_status": "timezone_unknown" if photo["datetime"] else "missing",
+                      "source_refs": [{"kind": "file", "path": str(path), "sha256": file_digest(path), "locator": "EXIF"}]}
+            lines.extend(["```json", json.dumps(record, ensure_ascii=False, indent=2), "```"])
+        clusters = cluster_photo_sessions(photos, time_gap_hours, location_radius_km)
+        lines.append("## 拍摄聚类")
+        lines.append(f"参数：时间窗口 {time_gap_hours} 小时，已知位置半径 {location_radius_km} 公里。")
+        for cluster in clusters:
+            lines.append(f"- {cluster['date']} {cluster['start']}–{cluster['end']}：{cluster['photo_count']} 张照片，跨度 {cluster['duration_min']} 分钟。")
+        report = "\n".join(lines)
     if output_path:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(report)
-        print(f"✅ 报告已保存到 {output_path}")
-
+        Path(output_path).write_text(report, encoding="utf-8")
     return report
 
 
-# ─────────────────────────────────────────────
-# 主程序
-# ─────────────────────────────────────────────
-
 def main():
-    parser = argparse.ArgumentParser(
-        description="simp-skill · 照片元数据分析器",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-示例：
-  python3 photo_analyzer.py --dir crushes/xiaomei/memories/photos
-  python3 photo_analyzer.py --dir ./photos --target 小美 --output report.md
-  python3 photo_analyzer.py --dir ./photos --gap 6 --radius 5
-        """,
-    )
-    parser.add_argument("--dir",    required=True, help="照片目录路径")
-    parser.add_argument("--target", default="心上人", help="心上人的名字")
-    parser.add_argument("--output", "-o", help="输出报告路径（默认：打印到控制台）")
-    parser.add_argument("--gap",    type=float, default=4.0,
-                        help="约会检测时间窗口（小时，默认：4）")
-    parser.add_argument("--radius", type=float, default=2.0,
-                        help="约会检测地点半径（公里，默认：2）")
-
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dir", required=True)
+    parser.add_argument("--target", default="心上人")
+    parser.add_argument("--output", "-o")
+    parser.add_argument("--gap", type=float, default=4.0, help="拍摄聚类时间窗口（小时）")
+    parser.add_argument("--radius", type=float, default=2.0, help="已知位置半径（公里）")
     args = parser.parse_args()
-
-    print(f"💝 simp-skill · 照片分析器")
-    print(f"📂 扫描目录：{args.dir}")
-    print(f"🎯 心上人：{args.target}")
-    if not PIL_AVAILABLE:
-        print(f"⚠️  Pillow 未安装，请运行：pip install Pillow")
-        print()
-    print()
-
-    report = generate_report(args.dir, args.target, args.output)
-
-    if not args.output:
-        print(report)
+    try:
+        report = generate_report(args.dir, args.target, args.output, time_gap_hours=args.gap, location_radius_km=args.radius)
+        if not args.output:
+            print(report)
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
 
 
 if __name__ == "__main__":
