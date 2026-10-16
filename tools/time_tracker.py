@@ -19,6 +19,7 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 DEFAULT_BASE_DIR = Path("crushes")
+MAX_REPLY_DELAY_MIN = 7 * 24 * 60
 
 VALID_INTERACTION_TYPES = frozenset({
     "chat_sent",
@@ -39,6 +40,52 @@ def _needs_leading_newline(path: Path) -> bool:
     with path.open("rb") as f:
         f.seek(-1, 2)
         return f.read(1) != b"\n"
+
+
+def _infer_reply_delay_min(
+    slug: str,
+    ts: datetime,
+    base_dir: Path = DEFAULT_BASE_DIR,
+    max_gap_min: int = 240,
+) -> int | None:
+    """对手动记录的 chat_received 自动推断“对方回复你的延迟”。
+
+    只在当前记录之前最近一条聊天互动是 chat_sent 且间隔不超过 max_gap_min 时返回。
+    如果最近一条聊天互动也是 chat_received，说明不是“回复你的上一条”，不应重复计算。
+    """
+    prior_chat_events: list[tuple[datetime, dict[str, Any]]] = []
+    for record in get_interactions(slug, base_dir=base_dir, types=["chat_sent", "chat_received"]):
+        try:
+            record_ts = datetime.fromisoformat(record["ts"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if record_ts < ts:
+            prior_chat_events.append((record_ts, record))
+
+    if not prior_chat_events:
+        return None
+
+    prev_ts, prev_record = max(prior_chat_events, key=lambda item: item[0])
+    if prev_record.get("type") != "chat_sent":
+        return None
+
+    delay_min = (ts - prev_ts).total_seconds() / 60
+    if 0 < delay_min <= max_gap_min:
+        return round(delay_min)
+    return None
+
+
+def _validated_reply_delay_min(interaction_type: str, value: Any) -> float:
+    if interaction_type != "chat_received":
+        raise ValueError("reply_delay_min 仅适用于 chat_received")
+    if not isinstance(value, (int, float)):
+        raise ValueError("reply_delay_min 必须是数字分钟数")
+    delay = float(value)
+    if delay <= 0:
+        raise ValueError("reply_delay_min 必须大于 0")
+    if delay > MAX_REPLY_DELAY_MIN:
+        raise ValueError(f"reply_delay_min 不能超过 {MAX_REPLY_DELAY_MIN} 分钟")
+    return delay
 
 
 def record_interaction(
@@ -76,6 +123,14 @@ def record_interaction(
                         return
                 except json.JSONDecodeError:
                     pass
+
+    if "reply_delay_min" in data:
+        data = {**data, "reply_delay_min": _validated_reply_delay_min(interaction_type, data["reply_delay_min"])}
+
+    if interaction_type == "chat_received" and "reply_delay_min" not in data:
+        inferred_delay = _infer_reply_delay_min(slug, ts, base_dir=base_dir)
+        if inferred_delay is not None:
+            data = {**data, "reply_delay_min": inferred_delay}
 
     computed = {
         **data,
@@ -266,6 +321,18 @@ _REPLY_BUCKETS = [
 ]
 
 
+def _reply_bucket(delay_min: float) -> str:
+    if delay_min <= 5:
+        return "lte_5min"
+    if delay_min <= 15:
+        return "min_5_to_15"
+    if delay_min <= 60:
+        return "min_15_to_60"
+    if delay_min <= 240:
+        return "hr_1_to_4"
+    return "gt_4h"
+
+
 def analyze_reply_times(
     slug: str,
     days: int = 30,
@@ -298,10 +365,7 @@ def analyze_reply_times(
 
     bucket_counts: dict[str, int] = {label: 0 for label, _, _ in _REPLY_BUCKETS}
     for d in delays:
-        for label, lo, hi in _REPLY_BUCKETS:
-            if lo <= d < hi:
-                bucket_counts[label] += 1
-                break
+        bucket_counts[_reply_bucket(d)] += 1
 
     total = len(delays)
     distribution = {label: round(count / total * 100, 1) for label, count in bucket_counts.items()}
@@ -571,6 +635,7 @@ def main() -> None:
     p.add_argument("--activity", help="活动描述")
     p.add_argument("--location", help="地点")
     p.add_argument("--initiator", choices=["me", "them", "mutual"], help="发起方")
+    p.add_argument("--reply-delay", type=float, help="对方回复你的延迟（分钟，仅 chat_received 使用；省略时尝试自动推断）")
     p.add_argument("--time", help="时间（ISO 格式，如 2026-05-15T22:30）")
     p.add_argument("--base-dir", default="crushes")
 
@@ -600,8 +665,14 @@ def main() -> None:
             data["location"] = args.location
         if args.initiator:
             data["initiator"] = args.initiator
+        if args.reply_delay is not None:
+            data["reply_delay_min"] = args.reply_delay
 
-        record_interaction(args.slug, args.type, data, ts=ts, base_dir=base_dir)
+        try:
+            record_interaction(args.slug, args.type, data, ts=ts, base_dir=base_dir)
+        except (FileNotFoundError, ValueError) as exc:
+            logger.error("❌ %s", exc)
+            raise SystemExit(1) from exc
         logger.info("✅ 互动已记录：%s", args.type)
 
     elif args.cmd == "analyze":

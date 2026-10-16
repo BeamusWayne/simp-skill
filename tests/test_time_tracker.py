@@ -13,6 +13,7 @@ from tools.time_tracker import (
     analyze_timeline,
     analyze_reply_times,
     analyze_golden_hours,
+    _reply_bucket,
 )
 
 
@@ -80,6 +81,68 @@ class TestRecordInteraction:
         record = json.loads(lines[0])
         assert record["data"]["reply_delay_min"] == 2
         assert record["data"]["is_initiator"] is False
+
+    def test_rejects_reply_delay_for_non_received_type(
+        self, crush_dir: Path, base_dir: Path, slug: str
+    ) -> None:
+        with pytest.raises(ValueError, match="仅适用于 chat_received"):
+            record_interaction(
+                slug,
+                "chat_sent",
+                {"content_summary": "hi", "reply_delay_min": 2},
+                ts=datetime(2026, 5, 15, 22, 30, 0),
+                base_dir=base_dir,
+            )
+
+    def test_rejects_non_positive_reply_delay(
+        self, crush_dir: Path, base_dir: Path, slug: str
+    ) -> None:
+        with pytest.raises(ValueError, match="必须大于 0"):
+            record_interaction(
+                slug,
+                "chat_received",
+                {"content_summary": "hi", "reply_delay_min": 0},
+                ts=datetime(2026, 5, 15, 22, 30, 0),
+                base_dir=base_dir,
+            )
+
+    def test_rejects_unreasonably_large_reply_delay(
+        self, crush_dir: Path, base_dir: Path, slug: str
+    ) -> None:
+        with pytest.raises(ValueError, match="不能超过"):
+            record_interaction(
+                slug,
+                "chat_received",
+                {"content_summary": "hi", "reply_delay_min": 10081},
+                ts=datetime(2026, 5, 15, 22, 30, 0),
+                base_dir=base_dir,
+            )
+
+    def test_auto_infers_reply_delay_for_chat_received(
+        self, crush_dir: Path, base_dir: Path, slug: str
+    ) -> None:
+        sent_ts = datetime(2026, 5, 15, 22, 30, 0)
+        reply_ts = datetime(2026, 5, 15, 22, 37, 0)
+        record_interaction(slug, "chat_sent", {"content_summary": "周末有空吗"}, ts=sent_ts, base_dir=base_dir)
+        record_interaction(slug, "chat_received", {"content_summary": "有空呀"}, ts=reply_ts, base_dir=base_dir)
+
+        lines = (crush_dir / "interactions.jsonl").read_text(encoding="utf-8").strip().splitlines()
+        reply = json.loads(lines[1])
+        assert reply["data"]["reply_delay_min"] == 7
+
+    def test_does_not_infer_reply_delay_after_received_message(
+        self, crush_dir: Path, base_dir: Path, slug: str
+    ) -> None:
+        sent_ts = datetime(2026, 5, 15, 22, 30, 0)
+        first_reply_ts = datetime(2026, 5, 15, 22, 37, 0)
+        second_reply_ts = datetime(2026, 5, 15, 22, 40, 0)
+        record_interaction(slug, "chat_sent", {"content_summary": "周末有空吗"}, ts=sent_ts, base_dir=base_dir)
+        record_interaction(slug, "chat_received", {"content_summary": "有空呀"}, ts=first_reply_ts, base_dir=base_dir)
+        record_interaction(slug, "chat_received", {"content_summary": "你想去哪"}, ts=second_reply_ts, base_dir=base_dir)
+
+        lines = (crush_dir / "interactions.jsonl").read_text(encoding="utf-8").strip().splitlines()
+        second_reply = json.loads(lines[2])
+        assert "reply_delay_min" not in second_reply["data"]
 
     def test_appends_meeting(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
         ts = datetime(2026, 5, 17, 19, 0, 0)
@@ -161,9 +224,9 @@ class TestGetInteractions:
 
 class TestGetReplyTimes:
     def test_returns_only_received_with_delay(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        ts1 = datetime(2026, 5, 10, 10, 0, 0)
-        ts2 = datetime(2026, 5, 10, 10, 5, 0)
-        ts3 = datetime(2026, 5, 10, 10, 10, 0)
+        ts1 = datetime.now() - timedelta(days=1, minutes=10)
+        ts2 = datetime.now() - timedelta(days=1, minutes=5)
+        ts3 = datetime.now() - timedelta(days=1)
         record_interaction(slug, "chat_sent", {"content_summary": "hi"}, ts=ts1, base_dir=base_dir)
         record_interaction(slug, "chat_received", {"content_summary": "hey", "reply_delay_min": 5}, ts=ts2, base_dir=base_dir)
         record_interaction(slug, "chat_received", {"content_summary": "no delay"}, ts=ts3, base_dir=base_dir)
@@ -241,6 +304,13 @@ class TestAnalyzeReplyTimes:
         assert dist["gt_4h"] > 0
         total_pct = sum(dist.values())
         assert abs(total_pct - 100.0) < 1.0
+
+    def test_reply_bucket_boundaries(self) -> None:
+        assert _reply_bucket(5) == "lte_5min"
+        assert _reply_bucket(15) == "min_5_to_15"
+        assert _reply_bucket(60) == "min_15_to_60"
+        assert _reply_bucket(240) == "hr_1_to_4"
+        assert _reply_bucket(241) == "gt_4h"
 
     def test_empty_data(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
         result = analyze_reply_times(slug, days=30, base_dir=base_dir)

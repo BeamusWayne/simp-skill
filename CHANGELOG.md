@@ -4,6 +4,23 @@
 
 ---
 
+## [Unreleased]
+
+### 修复
+- 修复 `tests/test_time_tracker.py` 中写死 2026-05 日期导致的 30 天窗口过期失败。
+- `tools/time_tracker.py record chat_received` 在未传 `reply_delay_min` 时，会根据上一条 `chat_sent` 自动推断 4 小时内回复延迟；同时修复 5/15/60/240 分钟边界桶归类。
+- `tools/time_tracker.py` 新增 `reply_delay_min` 校验：仅允许 `chat_received` 使用，且必须为 0 到 7 天内的正数分钟。
+- `SKILL.md` 移除不兼容 Codex skill 校验的 `user-invocable` frontmatter。
+
+### 改进
+- `SKILL.md` 新增子指令路由表，明确 `/simp` 各模块应读取的 `prompts/` 与工具入口。
+- `SKILL.md` 瘦身为入口、路由、档案协议、硬边界和快速开始，具体模块细节下沉到 `prompts/*.md`。
+- 新增 `agents/openai.yaml`，提供 Codex UI 展示名称、短描述和默认 prompt。
+- 收敛“追到手/无条件支持”等营销化表述，统一到真诚表达、尊重边界、防耗尽优先的产品边界。
+- 同步 README、README_EN、MEM-SYS 与 CLI 初始化日志中的 `interactions.jsonl` / `/simp timeline` 文档。
+
+---
+
 ## [1.6.0] - 2026-04-28
 
 ### 新增

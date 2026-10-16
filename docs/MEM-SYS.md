@@ -1,6 +1,6 @@
-# Mem-Sys 实现规划书
+# Mem-Sys 设计与实现说明
 
-> 分支：`Mem-Sys` | 创建于 2026-04-12
+> 初版创建于 2026-04-12；当前文档同步到 Mem-Sys + 互动时间分析结构。
 
 ## 一、现状分析
 
@@ -29,6 +29,7 @@ crushes/{slug}/
 ├── profile.md       # 【升级】稳定层 — YAML frontmatter + 叙述体
 ├── state.md         # 【新增】动态层 — 当前快照，每次会话后覆盖
 ├── events.jsonl     # 【新增】事件流 — 只追加，永不删除
+├── interactions.jsonl # 【新增】互动时间流 — 消息/见面/回复速度，只追加
 ├── strategy.md      # 【保留】追求策略（不动）
 ├── meta.json        # 【扩展】元数据，新增索引字段
 ├── memories/
@@ -47,6 +48,7 @@ crushes/{slug}/
 | `state.md` | 每次必读 | ~200 |
 | `events.jsonl` 最近5条 | progress/analyze/quit | ~150 |
 | `strategy.md` | message/confess/analyze | ~400 |
+| `interactions.jsonl` 聚合结果 | timeline/progress/daily | 按需 |
 | `events.jsonl` 全部 | 用户明确要求回顾时 | 按需 |
 
 ---
@@ -105,7 +107,7 @@ milestones_done: 7
 ---
 
 ## 当前状态（一句话）
-关系持续升温，ta 开始主动制造见面机会。
+关系持续升温，ta 开始自然提出见面机会。
 
 ## 最近信号（最新3条）
 - 🟢 2026-04-11 ta 主动问周末有没有空
@@ -167,11 +169,38 @@ milestones_done: 7
   "signal_score": 17,
   "mode": "hybrid",
   "event_count": 4,
-  "last_snapshot": "2026-04-12"
+  "last_snapshot": "2026-04-12",
+  "interaction_count": 12,
+  "last_interaction": "2026-04-12T22:30:00",
+  "consecutive_days": 3
 }
 ```
 
-新增字段：`nickname`（用于 list 展示）、`event_count`（快速统计）、`last_snapshot`
+新增字段：`nickname`（用于 list 展示）、`event_count`（快速统计）、`last_snapshot`、`interaction_count`、`last_interaction`、`consecutive_days`
+
+---
+
+### 3.5 `interactions.jsonl`（互动时间流）
+
+每行一个独立 JSON 对象，严格只追加，专门服务 `/simp timeline`、`/simp progress` 的互动节奏分析：
+
+```jsonl
+{"ts":"2026-05-15T22:30:00","v":1,"type":"chat_sent","slug":"xiaoyu","data":{"content_summary":"问她周末有没有空","hour":22,"day_of_week":"fri","is_initiator":true}}
+{"ts":"2026-05-15T22:32:00","v":1,"type":"chat_received","slug":"xiaoyu","data":{"content_summary":"有空呀","hour":22,"day_of_week":"fri","is_initiator":false,"reply_delay_min":2}}
+{"ts":"2026-05-17T19:00:00","v":1,"type":"meeting","slug":"xiaoyu","data":{"duration_min":180,"activity":"咖啡+散步","hour":19,"day_of_week":"sun"}}
+```
+
+**互动类型字典**：
+
+| type | 来源 | data 字段 |
+|------|------|-----------|
+| `chat_sent` | 聊天解析/手动录入 | content_summary, hour, day_of_week, is_initiator(true) |
+| `chat_received` | 聊天解析/手动录入 | content_summary, hour, day_of_week, is_initiator(false), reply_delay_min(可选) |
+| `meeting` | 手动录入 | duration_min, activity, location(可选), hour, day_of_week |
+| `call` | 手动录入 | duration_min, initiator(可选), hour, day_of_week |
+| `online_interaction` | 手动录入 | platform, interaction_type, content_summary |
+
+`tools/time_tracker.py record` 在记录 `chat_received` 时，如果未显式提供 `reply_delay_min`，会尝试根据上一条 `chat_sent` 自动推断 4 小时内的回复延迟；无法推断时保留为空。
 
 ---
 
@@ -183,6 +212,7 @@ milestones_done: 7
 /simp create      无                      profile.md(新建)
                                           state.md(空模板)
                                           events.jsonl(新建)
+                                          interactions.jsonl(新建)
                                           meta.json(新建)
 
 /simp analyze     profile.md              state.md(覆盖)
@@ -219,6 +249,11 @@ milestones_done: 7
                   events.jsonl 全部
 
 /simp list        meta.json(所有slug)     无
+
+/simp timeline    interactions.jsonl      无
+                  meta.json
+                  events.jsonl
+                  profile.md
 ```
 
 ---
@@ -227,7 +262,7 @@ milestones_done: 7
 
 ### 5.1 模块职责
 
-`memory.py` 是记忆系统的唯一入口，`skill_writer.py` 调用它，Claude 通过 shell 调用它。
+`memory.py` 是记忆系统的唯一入口，`skill_writer.py` 调用它，agent 通过 shell 调用它。
 
 ### 5.2 CLI 接口
 

@@ -139,6 +139,7 @@ def init_crush(slug: str, base_dir: Path = DEFAULT_BASE_DIR) -> None:
     logger.info("   ├── profile.md     （心上人基本信息）")
     logger.info("   ├── state.md       （当前状态快照）")
     logger.info("   ├── events.jsonl   （事件日志）")
+    logger.info("   ├── interactions.jsonl （互动时间记录）")
     logger.info("   ├── strategy.md    （追求策略）")
     logger.info("   ├── meta.json      （元数据）")
     logger.info("   ├── snapshots/     （定期快照）")

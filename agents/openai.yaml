@@ -1,0 +1,4 @@
+interface:
+  display_name: "追爱军师"
+  short_description: "Sincere relationship signal and message coach"
+  default_prompt: "Use $simp to analyze my relationship signals and draft a sincere, low-pressure message."

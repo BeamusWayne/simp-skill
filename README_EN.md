@@ -13,9 +13,9 @@
 
 <br>
 
-No manipulation. No games. Just one belief — **authenticity is the strongest move.**<br>
+No manipulation. No games. Just one belief — **authenticity and respect are the strongest move.**<br>
 Feed it your chat logs, social media, and photos. Get a signal analysis report back.<br>
-**Quantify the warmth, build the strategy, win your crush.**
+**Quantify the warmth, build a respectful strategy, and say what you mean.**
 
 <br>
 
@@ -38,6 +38,7 @@ Feed it your chat logs, social media, and photos. Get a signal analysis report b
 | 🧬 **MBTI Analysis** | Infer their MBTI from behavior, get type-specific pursuit strategy and compatibility read |
 | 📈 **Progress Tracking** | Stage progress bar + score trend comparison so you can see the relationship arc over time |
 | 🍃 **Quit Judge** | Figure out if it's real love or just pride — and whether to keep going or let go |
+| ⏱️ **Interaction Timing** | Track frequency, stage duration, reply speed, and best time windows |
 
 ---
 
@@ -49,9 +50,9 @@ No tactics. No games. Lead with genuine feeling. Best for emotionally expressive
 > *"When you smiled like that, I suddenly didn't want to talk anymore. I just wanted to look a little longer."*
 
 ### 🎯 Strategic Mode
-Know when to advance, when to pull back, let them come to you. Best for analytical crushes or when things have stalled.
+Know when to advance, when to pause, and how to let the interaction progress naturally. Best for analytical crushes or when things have stalled.
 
-> *"What you said earlier, I've been thinking about it."* (leave the hook, wait for them to ask)
+> *"What you said earlier, I've been thinking about it."* (leave space for them to respond)
 
 ---
 
@@ -105,6 +106,29 @@ python3 tools/photo_analyzer.py --dir crushes/emma/memories/photos --target Emma
 python3 tools/photo_analyzer.py --dir ./photos --target Emma --output report.md
 ```
 
+**Interaction timing analysis** — frequency, reply speed, and best time windows:
+```bash
+# Automatic: parse chat logs and write timing records
+python3 tools/chat_parser.py exported_chat.txt Emma --track-time --slug emma
+
+# Manual: record a meetup or message
+python3 tools/time_tracker.py record emma meeting --duration 180 --activity "coffee + walk"
+python3 tools/time_tracker.py record emma chat_sent --summary "asked if she's free this weekend"
+python3 tools/time_tracker.py record emma chat_received --summary "yes, what's your plan?" --time "2026-05-15T22:32"
+
+# Manual: pass reply delay explicitly when it cannot be inferred
+python3 tools/time_tracker.py record emma chat_received --summary "just saw this" --reply-delay 45
+```
+
+**Analyze timing data:**
+```bash
+/simp timeline emma
+/simp timeline emma --frequency
+/simp timeline emma --milestones
+/simp timeline emma --reply
+/simp timeline emma --golden
+```
+
 ---
 
 ## Full Command Reference
@@ -126,6 +150,7 @@ python3 tools/photo_analyzer.py --dir ./photos --target Emma --output report.md
 | `/simp mode hybrid` | Switch to Hybrid Mode ✨ (default) |
 | `/simp update <name>` | Update a crush profile |
 | `/simp mbti [desc/type]` | MBTI inference + 16-type pursuit strategy + compatibility |
+| `/simp timeline [slug]` | Interaction timing analysis: frequency, milestones, reply speed, golden hours |
 
 ---
 
@@ -133,12 +158,12 @@ python3 tools/photo_analyzer.py --dir ./photos --target Emma --output report.md
 
 - **C-1** Explicit rejection → How to accept gracefully + when to try again
 - **C-2** Sudden silence / left on read → Observation window + re-entry messages
-- **C-3** Gradual drift apart → Create absence + change interaction style
+- **C-3** Gradual drift apart → Give space + change interaction style
 - **C-4** Friend-zoned → Three-step breakout method
 - **C-5** Said something wrong → 6-24 hour repair framework
 - **C-6** Rival appeared → Differentiated value strategy
 - **C-7** Confession left hanging → Waiting period strategy
-- **C-8** Stuck in the ambiguous zone → Three methods to force a breakthrough
+- **C-8** Stuck in the ambiguous zone → Three respectful ways to find a breakthrough
 - **C-9** Misunderstanding / argument → Repair script framework
 - **C-10** One-sided effort → Stop-and-observe method
 - **C-11** They started dating someone else → 72-hour emotional triage + two-path framework
@@ -176,6 +201,7 @@ crushes/
     ├── profile.md          — Basic info and persona (YAML frontmatter + narrative)
     ├── state.md            — Current snapshot (stage, score, recent signals, next steps)
     ├── events.jsonl        — Append-only event stream (the pursuit timeline)
+    ├── interactions.jsonl  — Interaction timing records (meetups / messages / reply timing)
     ├── strategy.md         — Personalized pursuit strategy
     ├── meta.json           — Metadata (stage / score / mode / event count)
     ├── snapshots/          — Daily snapshots (cross-session quick recovery)
@@ -274,7 +300,7 @@ Learning to love — that's the real thing this is about.
 
 ## License
 
-MIT — free to use. Now go get your person.
+MIT — free to use. Now go say what you mean.
 
 ---
 

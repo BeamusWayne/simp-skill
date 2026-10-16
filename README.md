@@ -13,9 +13,9 @@
 
 <br>
 
-不教套路，不玩 PUA，只相信一件事——**真心，是最强的攻略。**<br>
+不教套路，不玩 PUA，只相信一件事——**真心和尊重，是最强的表达。**<br>
 提供聊天记录、社交媒体截图、照片，生成信号分析报告。<br>
-**量化感情温度，定制追求策略，把心上人追到手。**
+**量化感情温度，定制追求策略，帮你真诚表达并尊重边界。**
 
 <br>
 
@@ -54,7 +54,7 @@
 
 ### 🎯 策略模式
 
-懂得何时推进、何时留白，让对方主动靠近。适合理性的心上人，或者暧昧陷入僵局。
+懂得何时推进、何时留白，让互动自然推进。适合理性的心上人，或者暧昧陷入僵局。
 
 > *"你刚才说的那件事，让我想了很久。"（留悬念，等对方追问）*
 
@@ -124,6 +124,10 @@ python3 tools/time_tracker.py record xiaomei meeting --duration 180 --activity "
 
 # 手动：记录消息
 python3 tools/time_tracker.py record xiaomei chat_sent --summary "问她周末有没有空"
+python3 tools/time_tracker.py record xiaomei chat_received --summary "有空呀" --time "2026-05-15T22:32"
+
+# 手动：无法自动推断回复间隔时，可显式填写分钟数
+python3 tools/time_tracker.py record xiaomei chat_received --summary "刚看到" --reply-delay 45
 ```
 
 **分析时间数据：**
@@ -161,6 +165,7 @@ python3 tools/time_tracker.py record xiaomei chat_sent --summary "问她周末�
 | `/simp mode hybrid`    | 切换到混合模式 ✨（默认） |
 | `/simp update <名字>`    | 更新心上人档案       |
 | `/simp mbti [描述/类型]` | MBTI 推断 + 16 型追求策略 + 兼容性分析 |
+| `/simp timeline [slug]` | 互动时间分析（频率、阶段、回复速度、黄金时段） |
 
 
 ---
@@ -280,7 +285,7 @@ python3 tools/memory.py timeline xiaomei
 
 ## 许可证
 
-MIT License — 自由使用，记得去追你的心上人。
+MIT License — 自由使用，记得真诚表达。
 
 ---
 
