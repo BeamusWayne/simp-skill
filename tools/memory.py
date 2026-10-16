@@ -1,461 +1,295 @@
 #!/usr/bin/env python3
-"""
-simp-skill · Memory System
-心上人档案记忆系统 — 事件追加、状态读写、快照管理
-
-用法：
-  python3 tools/memory.py append <slug> <event_type> '<json_data>'
-  python3 tools/memory.py events <slug> [--last 5] [--type signal_recorded]
-  python3 tools/memory.py context <slug> [--with-strategy]
-  python3 tools/memory.py snapshot <slug>
-  python3 tools/memory.py timeline <slug>
-  python3 tools/memory.py rebuild <slug>
-"""
-
+"""Typed, attributable memory. events.jsonl is authoritative; projections are disposable."""
+from __future__ import annotations
 import argparse
+from copy import deepcopy
 import json
-import logging
-from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+import sys
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tools.contracts import KINDS, file_digest, parse_time, stable_id, utc_now, validate_record
+from tools.storage import (DEFAULT_BASE_DIR, atomic_write, backup_state, ensure_ready, member,
+                           profile_lock, profile_path, write_json)
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
-logger = logging.getLogger(__name__)
-
-DEFAULT_BASE_DIR = Path("crushes")
-
-VALID_EVENT_TYPES = frozenset({
-    "profile_created",
-    "profile_updated",
-    "stage_changed",
-    "signal_recorded",
-    "analysis_done",
-    "progress_evaluated",
-    "strategy_updated",
-    "crisis_handled",
-    "quit_evaluated",
-    "confess_prepared",
-})
-
-_SECTION_ORDER = [
-    "## 当前状态（一句话）",
-    "## 最近信号（最新3条）",
-    "## 当前策略方向",
-    "## 下一步建议",
-]
-
-_TIMELINE_LABELS: dict[str, str] = {
-    "profile_created": "🌱 档案创建",
-    "profile_updated": "✏️  档案更新",
-    "stage_changed": "📍 阶段变化",
-    "signal_recorded": "📡 信号记录",
-    "analysis_done": "🔍 完成分析",
-    "progress_evaluated": "📊 进度评估",
-    "strategy_updated": "🗺️  策略更新",
-    "crisis_handled": "🆘 危机处理",
-    "quit_evaluated": "🍃 放弃判断",
-    "confess_prepared": "💌 表白准备",
-}
+PROJECTIONS = ("profile.md", "state.md", "strategy.md", "participants.json", "interactions.jsonl", "meta.json")
 
 
-# Frontmatter 中应解析为数字的键白名单。其余键（尤其作为档案主键的 slug）保持字符串，
-# 避免 "007" 在 parse->render 往返中被静默转成 7 而损坏目录查找。
-_NUMERIC_FRONTMATTER_KEYS = frozenset({
-    "age", "score", "signal_score", "last_signal_score",
-    "milestones_done", "consecutive_days",
-})
-
-
-def _parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
-    """解析 Markdown YAML frontmatter，返回 (字段dict, 正文)"""
-    if not content.startswith("---"):
-        return {}, content
-
-    parts = content.split("---", 2)
-    if len(parts) < 3:
-        return {}, content
-
-    fields: dict[str, Any] = {}
-    for line in parts[1].strip().splitlines():
-        if ": " not in line:
-            continue
-        key, _, raw = line.partition(": ")
-        k = key.strip()
-        value: Any = raw.strip()
-        if (value.startswith('"') and value.endswith('"')) or (
-            value.startswith("'") and value.endswith("'")
-        ):
-            value = value[1:-1]
-        elif value == "null":
-            value = None
-        elif k in _NUMERIC_FRONTMATTER_KEYS:
-            if value.lstrip("-").isdigit():
-                value = int(value)
-            else:
-                try:
-                    value = float(value)
-                except ValueError:
-                    pass
-        fields[k] = value
-
-    return fields, parts[2]
-
-
-def _render_frontmatter(fields: dict[str, Any], body: str) -> str:
-    """将字段dict和正文渲染回 frontmatter 格式"""
-    _NEEDS_QUOTE = set(':#{[}],&*?|<>=!%@`')
-    lines = ["---"]
-    for key, value in fields.items():
-        if value is None:
-            lines.append(f"{key}: null")
-        elif isinstance(value, bool):
-            lines.append(f"{key}: {str(value).lower()}")
-        elif isinstance(value, (int, float)):
-            lines.append(f"{key}: {value}")
-        else:
-            s = str(value)
-            if any(c in s for c in _NEEDS_QUOTE) or not s:
-                lines.append(f'{key}: "{s}"')
-            else:
-                lines.append(f"{key}: {s}")
-    lines.append("---")
-    return "\n".join(lines) + body
-
-
-def _parse_body_sections(body: str) -> dict[str, str]:
-    """将 Markdown 正文按 ## 标题拆分为 {标题: 内容} 字典"""
-    sections: dict[str, str] = {}
-    current_header: str | None = None
-    current_lines: list[str] = []
-
-    for line in body.splitlines():
-        if line.startswith("## "):
-            if current_header is not None:
-                sections[current_header] = "\n".join(current_lines).strip()
-            current_header = line
-            current_lines = []
-        elif current_header is not None:
-            current_lines.append(line)
-
-    if current_header is not None:
-        sections[current_header] = "\n".join(current_lines).strip()
-
-    return sections
-
-
-def _needs_leading_newline(path: Path) -> bool:
-    """文件已存在、非空且不以换行结尾（说明上次写入被截断）时返回 True。
-    据此在追加前补一个前导换行，避免把新记录拼接到损坏的半行末尾后一起丢失。"""
-    if not path.exists() or path.stat().st_size == 0:
-        return False
-    with path.open("rb") as f:
-        f.seek(-1, 2)
-        return f.read(1) != b"\n"
-
-
-def append_event(
-    slug: str,
-    event_type: str,
-    data: dict[str, Any],
-    base_dir: Path = DEFAULT_BASE_DIR,
-) -> None:
-    """追加一条事件到 events.jsonl，同时更新 meta.json 的 event_count"""
-    if event_type not in VALID_EVENT_TYPES:
-        raise ValueError(f"未知事件类型: {event_type}")
-
-    crush_dir = base_dir / slug
-    if not crush_dir.exists():
-        raise FileNotFoundError(f"档案不存在: {slug}")
-
-    event = {
-        "ts": datetime.now().isoformat(),
-        "v": 1,
-        "type": event_type,
-        "slug": slug,
-        "data": data,
-    }
-
-    events_path = crush_dir / "events.jsonl"
-    prefix = "\n" if _needs_leading_newline(events_path) else ""
-    with events_path.open("a", encoding="utf-8") as f:
-        f.write(prefix + json.dumps(event, ensure_ascii=False) + "\n")
-
-    meta_path = crush_dir / "meta.json"
-    if meta_path.exists():
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        updated_meta = {
-            **meta,
-            "event_count": len(get_recent_events(slug, n=10**9, base_dir=base_dir)),
-            "updated_at": datetime.now().isoformat(),
-        }
-        meta_path.write_text(json.dumps(updated_meta, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def get_recent_events(
-    slug: str,
-    n: int = 5,
-    event_types: list[str] | None = None,
-    base_dir: Path = DEFAULT_BASE_DIR,
-) -> list[dict[str, Any]]:
-    """返回最近 N 条事件，可按 type 列表过滤"""
-    events_path = base_dir / slug / "events.jsonl"
-    if not events_path.exists():
-        return []
-
-    events: list[dict[str, Any]] = []
-    for idx, line in enumerate(events_path.read_text(encoding="utf-8").splitlines(), start=1):
-        stripped = line.strip()
-        if not stripped:
+def _read_records(root: Path) -> list[dict]:
+    path = member(root, "events.jsonl")
+    records = []
+    seen = set()
+    for line, text in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not text.strip():
             continue
         try:
-            event = json.loads(stripped)
-        except json.JSONDecodeError:
-            logger.warning("⚠️  events.jsonl 第 %d 行损坏，已跳过：%.80s", idx, stripped)
-            continue
-        if event_types is None or event.get("type") in event_types:
-            events.append(event)
-
-    return events[-n:]
-
-
-def load_context(
-    slug: str,
-    include_strategy: bool = False,
-    base_dir: Path = DEFAULT_BASE_DIR,
-) -> str:
-    """拼装 profile.md + state.md，供 Claude 注入 context"""
-    crush_dir = base_dir / slug
-    parts: list[str] = []
-
-    for filename, label in [("profile.md", "[档案]"), ("state.md", "[状态]")]:
-        path = crush_dir / filename
-        if path.exists():
-            parts.append(f"# {label} {filename}\n\n")
-            parts.append(path.read_text(encoding="utf-8"))
-            parts.append("\n\n")
-
-    if include_strategy:
-        strategy_path = crush_dir / "strategy.md"
-        if strategy_path.exists():
-            parts.append("# [策略] strategy.md\n\n")
-            parts.append(strategy_path.read_text(encoding="utf-8"))
-
-    return "".join(parts)
+            record = json.loads(text)
+            validate_record(record)
+            if record["record_id"] in seen:
+                raise ValueError("duplicate record ID")
+            refs = record["related_record_ids"] + record["supersedes"]
+            if any(ref not in seen for ref in refs):
+                raise ValueError("dangling or forward record reference")
+            seen.add(record["record_id"])
+            records.append(record)
+        except (ValueError, TypeError, KeyError) as exc:
+            raise ValueError(f"events.jsonl line {line} is invalid; restore or repair without dropping data: {exc}") from exc
+    return records
 
 
-def update_state(
-    slug: str,
-    frontmatter_updates: dict[str, Any],
-    sections: dict[str, str],
-    base_dir: Path = DEFAULT_BASE_DIR,
-) -> None:
-    """全量覆盖 state.md；frontmatter_updates 合并 YAML 字段，sections 合并正文章节"""
-    crush_dir = base_dir / slug
-    if not crush_dir.exists():
-        raise FileNotFoundError(f"档案不存在: {slug}")
-
-    state_path = crush_dir / "state.md"
-    existing_fm: dict[str, Any] = {}
-    existing_sections: dict[str, str] = {}
-
-    if state_path.exists():
-        existing_fm, body = _parse_frontmatter(state_path.read_text(encoding="utf-8"))
-        existing_sections = _parse_body_sections(body)
-
-    new_fm = {**existing_fm, **frontmatter_updates, "last_updated": datetime.now().isoformat()}
-    merged_sections = {**existing_sections, **sections}
-
-    body_parts: list[str] = ["\n"]
-    for header in _SECTION_ORDER:
-        content = merged_sections.get(header, "[待生成]")
-        body_parts.append(f"\n{header}\n\n{content}\n")
-
-    state_path.write_text(_render_frontmatter(new_fm, "".join(body_parts)), encoding="utf-8")
-
-    meta_path = crush_dir / "meta.json"
-    if meta_path.exists():
-        sync_keys = {"current_stage", "signal_score"}
-        sync_updates = {k: v for k, v in frontmatter_updates.items() if k in sync_keys}
-        if sync_updates:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            updated_meta = {**meta, **sync_updates, "updated_at": datetime.now().isoformat()}
-            meta_path.write_text(json.dumps(updated_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+def record_statuses(records):
+    states = {r["record_id"]: "active" for r in records}
+    for record in records:
+        for ref in record["supersedes"]:
+            states[ref] = "invalidated" if record["kind"] == "correction" else "superseded"
+    # References only point backward, so this single pass propagates invalidity.
+    for record in records:
+        rid = record["record_id"]
+        if states[rid] == "active" and any(states.get(ref) != "active" for ref in record["related_record_ids"]):
+            states[rid] = "needs_review"
+    return states
 
 
-def take_snapshot(
-    slug: str,
-    base_dir: Path = DEFAULT_BASE_DIR,
-) -> Path:
-    """将 meta.json + state.md frontmatter 合并写入 snapshots/YYYY-MM-DD.json"""
-    crush_dir = base_dir / slug
-    snapshots_dir = crush_dir / "snapshots"
-    snapshots_dir.mkdir(exist_ok=True)
-
-    snapshot: dict[str, Any] = {
-        "slug": slug,
-        "snapshot_date": date.today().isoformat(),
-    }
-
-    meta_path = crush_dir / "meta.json"
-    if meta_path.exists():
-        snapshot["meta"] = json.loads(meta_path.read_text(encoding="utf-8"))
-
-    state_path = crush_dir / "state.md"
-    if state_path.exists():
-        state_fm, _ = _parse_frontmatter(state_path.read_text(encoding="utf-8"))
-        snapshot["state"] = state_fm
-
-    snapshot_path = snapshots_dir / f"{date.today().isoformat()}.json"
-    snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    if meta_path.exists():
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        updated_meta = {**meta, "last_snapshot": date.today().isoformat()}
-        meta_path.write_text(json.dumps(updated_meta, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    logger.info("✅ 快照已保存：%s", snapshot_path)
-    return snapshot_path
+def verify_projections(root):
+    manifest_path = member(root, ".projections.json")
+    if not manifest_path.exists():
+        raise RuntimeError("Missing projection manifest; run memory.py rebuild")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest["ledger_sha256"] != file_digest(member(root, "events.jsonl")):
+        raise RuntimeError("Stale projections; run memory.py rebuild")
+    changed = [name for name, digest in manifest["files"].items()
+               if not member(root, name).exists() or file_digest(member(root, name)) != digest]
+    if changed:
+        raise RuntimeError("Edited/missing projections: " + ", ".join(changed) + "; rebuild preserves a backup of edits")
 
 
-def rebuild_state_from_events(
-    slug: str,
-    base_dir: Path = DEFAULT_BASE_DIR,
-) -> dict[str, Any]:
-    """从 events.jsonl 重放所有事件，返回推断的当前状态"""
-    events = get_recent_events(slug, n=100_000, base_dir=base_dir)
-
-    state: dict[str, Any] = {
-        "current_stage": "未知",
-        "signal_score": None,
-        "last_signal_score": None,
-        "score_trend": "stable",
-        "recommended_mode": "hybrid",
-        "milestones_done": 0,
-    }
-
-    for event in events:
-        etype = event.get("type")
-        data = event.get("data", {})
-
-        if etype == "stage_changed":
-            state = {**state, "current_stage": data.get("to", state["current_stage"])}
-        elif etype in ("analysis_done", "progress_evaluated"):
-            new_score = data.get("score")
-            prev_score = state.get("signal_score")
-            trend = "stable"
-            if new_score is not None and prev_score is not None:
-                diff = new_score - prev_score
-                trend = "up" if diff >= 2 else ("down" if diff <= -2 else "stable")
-            state = {
-                **state,
-                "last_signal_score": prev_score,
-                "signal_score": new_score if new_score is not None else state["signal_score"],
-                "score_trend": trend,
-                "current_stage": data.get("stage", state["current_stage"]),
-            }
-            if etype == "progress_evaluated" and "milestones_done" in data:
-                state = {**state, "milestones_done": data["milestones_done"]}
-
-    return state
+def _frontmatter(fields, body):
+    return "---\n" + "\n".join(f"{key}: {json.dumps(value, ensure_ascii=False)}" for key, value in fields.items()) + "\n---\n\n" + body + "\n"
 
 
-def _format_timeline(events: list[dict[str, Any]]) -> str:
-    """格式化事件时间线为可读字符串"""
-    if not events:
-        return "暂无事件记录"
+def _project(root, records):
+    statuses = record_statuses(records)
+    active = [r for r in records if statuses[r["record_id"]] == "active" and r["kind"] != "legacy_record"]
+    preferences = {}
+    identities = {}
+    for record in active:
+        data = record["data"]
+        if record["kind"] == "preference":
+            preferences[data["key"]] = {"value": data["value"], "record_id": record["record_id"],
+                                        "confirmed": data.get("confirmed", False)}
+        if record["kind"] == "identity_mapping":
+            identities[data["conversation_id"] + "|" + data["sender_id"]] = {**data, "record_id": record["record_id"]}
+    assessments = [r for r in active if r["kind"] == "assessment"]
+    advice = [r for r in active if r["kind"] == "advice"]
+    interactions = []
+    seen_interactions = set()
+    for record in active:
+        data = record["data"]
+        message = data.get("message") if record["kind"] == "observation" else None
+        if message:
+            key = message["conversation_id"] + "|" + message["message_id"]
+            if key in seen_interactions:
+                continue
+            seen_interactions.add(key)
+            interactions.append({"record_id": record["record_id"], "kind": "message", "occurred_at": record["occurred_at"],
+                                 "source_refs": record["source_refs"], "message": message})
+        elif record["kind"] == "action_report":
+            interactions.append({"record_id": record["record_id"], "kind": "reported_action", "occurred_at": record["occurred_at"],
+                                 "source_refs": record["source_refs"], "data": data})
+    dated = [(parse_time(i["occurred_at"])[0], i["occurred_at"]) for i in interactions
+             if parse_time(i["occurred_at"])[1] == "known"]
+    last_interaction = max(dated, key=lambda pair: pair[0])[1] if dated else None
+    old_meta = json.loads(member(root, "meta.json").read_text(encoding="utf-8"))
+    stamp = records[-1]["recorded_at"] if records else old_meta.get("created_at", utc_now())
+    meta = {"schema_version": 2, "slug": root.name, "created_at": old_meta.get("created_at", stamp),
+            "memory_enabled": True, "nickname": preferences.get("nickname", {}).get("value", root.name),
+            "mode": preferences.get("mode", {}).get("value", "hybrid"), "record_count": len(records),
+            "updated_at": stamp, "last_record_id": records[-1]["record_id"] if records else None,
+            "interaction_count": len(interactions), "last_interaction": last_interaction,
+            "undated_or_local_interactions": sum(parse_time(i["occurred_at"])[1] != "known" for i in interactions),
+            "needs_review_count": sum(s == "needs_review" for s in statuses.values())}
+    fields = {"schema_version": 2, "slug": root.name, "last_record_id": meta["last_record_id"]}
+    profile_body = "# 已记录偏好\n\n" + ("\n".join(f"- {key}: {json.dumps(value, ensure_ascii=False)}" for key, value in preferences.items()) or "尚无已记录偏好。")
+    state_body = "# 当前判断\n\n" + (assessments[-1]["data"]["summary"] if assessments else "尚无当前有效判断。")
+    if assessments:
+        state_body += "\n\n依据记录：" + json.dumps(assessments[-1]["related_record_ids"], ensure_ascii=False)
+    state_body += f"\n\n待重新评估记录：{meta['needs_review_count']}。建议不代表已执行。"
+    strategy_body = "# 当前建议\n\n" + (advice[-1]["data"]["summary"] if advice else "尚无当前有效建议。")
+    for name, body in (("profile.md", profile_body), ("state.md", state_body), ("strategy.md", strategy_body)):
+        atomic_write(member(root, name), _frontmatter(fields, body))
+    write_json(member(root, "participants.json"), {"schema_version": 2, "identities": identities})
+    atomic_write(member(root, "interactions.jsonl"), "".join(json.dumps(i, ensure_ascii=False) + "\n" for i in interactions))
+    write_json(member(root, "meta.json"), meta)
+    write_json(member(root, ".projections.json"), {"ledger_sha256": file_digest(member(root, "events.jsonl")),
+               "files": {name: file_digest(member(root, name)) for name in PROJECTIONS}})
 
-    _DIRECTION_ICON = {"green": "🟢", "red": "🔴", "neutral": "🟡"}
 
-    lines = [f"📅 事件时间线（共 {len(events)} 条）", ""]
-    for event in events:
-        ts = event.get("ts", "")[:16].replace("T", " ")
-        label = _TIMELINE_LABELS.get(event.get("type", ""), event.get("type", ""))
-        data = event.get("data", {})
-        etype = event.get("type")
+def _prepare(kind, data, records, *, source_refs=None, related_record_ids=None, supersedes=None, occurred_at=None):
+    data = deepcopy(data)
+    related = list(related_record_ids or [])
+    for key in ("supporting_ids", "opposing_ids", "identity_ids"):
+        values = data.get(key, [])
+        if not isinstance(values, list):
+            raise ValueError(key + " must be a list")
+        related.extend(values)
+    if kind == "outcome" and data.get("action_id"):
+        related.append(data["action_id"])
+    payload = {"schema_version": 2, "kind": kind, "data": data, "source_refs": deepcopy(source_refs or []),
+               "related_record_ids": sorted(set(related)), "supersedes": sorted(set(supersedes or [])), "occurred_at": occurred_at}
+    record = {**payload, "record_id": stable_id(payload, "r:"), "recorded_at": utc_now()}
+    validate_record(record)
+    by_id = {r["record_id"]: r for r in records}
+    if record["record_id"] in by_id:
+        return by_id[record["record_id"]]
+    statuses = record_statuses(records)
+    for ref in record["related_record_ids"] + record["supersedes"]:
+        if ref not in by_id:
+            raise ValueError("Unknown record reference: " + ref)
+    if any(statuses[ref] != "active" for ref in record["related_record_ids"]):
+        raise ValueError("Cannot use an invalidated/superseded dependency as current evidence")
+    if kind != "legacy_record" and any(by_id[ref]["kind"] == "legacy_record" for ref in related):
+        raise ValueError("Legacy judgments require re-verification before use as evidence")
+    if kind == "outcome" and by_id[data["action_id"]]["kind"] != "action_report":
+        raise ValueError("outcome must reference an action_report, not a draft")
+    if kind in {"identity_mapping", "preference"}:
+        for prior in records:
+            if prior["kind"] != kind or statuses[prior["record_id"]] != "active":
+                continue
+            pd = prior["data"]
+            same = pd.get("key") == data.get("key") if kind == "preference" else (pd.get("conversation_id"), pd.get("sender_id")) == (data.get("conversation_id"), data.get("sender_id"))
+            if same and prior["record_id"] not in record["supersedes"]:
+                raise ValueError("Replacing an active preference/identity requires explicit supersedes")
+    return record
 
-        if etype == "stage_changed":
-            desc = f"{data.get('from', '?')} → {data.get('to', '?')}"
-        elif etype in ("analysis_done", "progress_evaluated"):
-            desc = f"评分 {data.get('score', '?')}/25  阶段：{data.get('stage', '?')}"
-        elif etype == "signal_recorded":
-            icon = _DIRECTION_ICON.get(data.get("direction", ""), "")
-            desc = f"{icon} {data.get('content', '')}"
-        elif etype == "crisis_handled":
-            desc = data.get("crisis_type", "")
-        else:
-            desc = ""
 
-        lines.append(f"  {ts}  {label}  {desc}".rstrip())
-
-    return "\n".join(lines)
+def _commit(root, records):
+    write_json(member(root, ".pending.json"), {"operation": "project", "at": utc_now()})
+    atomic_write(member(root, "events.jsonl"), "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records))
+    _project(root, records)
+    member(root, ".pending.json").unlink()
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="simp-skill · 记忆系统")
-    sub = parser.add_subparsers(dest="cmd", required=True)
+def append_records(slug, payloads, base_dir=DEFAULT_BASE_DIR):
+    root = profile_path(slug, base_dir)
+    with profile_lock(root):
+        ensure_ready(root)
+        verify_projections(root)
+        records = _read_records(root)
+        existing = {r["record_id"] for r in records}
+        added, output = False, []
+        for payload in payloads:
+            record = _prepare(records=records, **payload)
+            output.append(record)
+            if record["record_id"] not in existing:
+                records.append(record)
+                existing.add(record["record_id"])
+                added = True
+        if added:
+            _commit(root, records)
+        return output
 
-    p = sub.add_parser("append", help="追加事件")
-    p.add_argument("slug")
-    p.add_argument("event_type")
-    p.add_argument("data", help="JSON 字符串")
-    p.add_argument("--base-dir", default="crushes")
 
-    p = sub.add_parser("events", help="查看最近事件")
-    p.add_argument("slug")
-    p.add_argument("--last", type=int, default=5)
-    p.add_argument("--type", dest="event_type", help="按事件类型过滤")
-    p.add_argument("--base-dir", default="crushes")
+def append_event(slug, event_type, data, base_dir=DEFAULT_BASE_DIR, **kwargs):
+    return append_records(slug, [{"kind": event_type, "data": data, **kwargs}], base_dir)[0]
 
-    p = sub.add_parser("context", help="读取档案上下文")
-    p.add_argument("slug")
-    p.add_argument("--with-strategy", action="store_true")
-    p.add_argument("--base-dir", default="crushes")
 
-    p = sub.add_parser("snapshot", help="生成日快照")
-    p.add_argument("slug")
-    p.add_argument("--base-dir", default="crushes")
+def get_recent_events(slug, n=20, event_types=None, base_dir=DEFAULT_BASE_DIR, *, include_history=False):
+    if n < 0:
+        raise ValueError("n must be nonnegative")
+    root = profile_path(slug, base_dir)
+    with profile_lock(root):
+        ensure_ready(root)
+        verify_projections(root)
+        records = _read_records(root)
+    statuses = record_statuses(records)
+    visible = [{**r, "status": statuses[r["record_id"]]} for r in records
+               if (include_history or (statuses[r["record_id"]] == "active" and r["kind"] != "legacy_record"))
+               and (event_types is None or r["kind"] in event_types)]
+    return visible[-n:] if n else []
 
-    p = sub.add_parser("timeline", help="查看事件时间线")
-    p.add_argument("slug")
-    p.add_argument("--base-dir", default="crushes")
 
-    p = sub.add_parser("rebuild", help="从事件流重建状态")
-    p.add_argument("slug")
-    p.add_argument("--base-dir", default="crushes")
+def load_context(slug, include_strategy=False, base_dir=DEFAULT_BASE_DIR, *, query=None, kinds=None, limit=20):
+    root = profile_path(slug, base_dir)
+    with profile_lock(root):
+        ensure_ready(root)
+        verify_projections(root)
+        records = _read_records(root)
+    statuses = record_statuses(records)
+    active = {r["record_id"]: r for r in records if statuses[r["record_id"]] == "active" and r["kind"] != "legacy_record"}
+    if limit < 1:
+        raise ValueError("limit must be positive")
+    selected = [r for r in active.values() if (kinds is None or r["kind"] in kinds)
+                and (not query or query.casefold() in json.dumps(r, ensure_ascii=False).casefold())][-limit:]
+    ids = {r["record_id"] for r in selected}
+    todo = list(ids)
+    while todo:
+        rid = todo.pop()
+        for dependency in active[rid]["related_record_ids"]:
+            if dependency not in ids:
+                ids.add(dependency)
+                todo.append(dependency)
+    context = [r for r in records if r["record_id"] in ids]
+    return json.dumps({"schema_version": 2, "slug": slug, "query": query, "total_records": len(records),
+                       "active_records": len(active), "selected_records": len(context),
+                       "scope": "Selected records plus dependencies; not the complete history. Search contrary evidence separately.",
+                       "records": context}, ensure_ascii=False, indent=2)
 
+
+def rebuild_state_from_events(slug, base_dir=DEFAULT_BASE_DIR):
+    root = profile_path(slug, base_dir)
+    with profile_lock(root):
+        ensure_ready(root, allow_pending=True)
+        records = _read_records(root)
+        backup_state(root, "before-rebuild-preserve-edits")
+        write_json(member(root, ".pending.json"), {"operation": "rebuild", "at": utc_now()})
+        _project(root, records)
+        pending = member(root, ".pending.json")
+        if pending.exists():
+            pending.unlink()
+        return json.loads(member(root, "meta.json").read_text(encoding="utf-8"))
+
+
+def take_snapshot(slug, base_dir=DEFAULT_BASE_DIR):
+    root = profile_path(slug, base_dir)
+    with profile_lock(root):
+        ensure_ready(root)
+        verify_projections(root)
+        path = member(root, "snapshots/" + utc_now().replace(":", "").replace("+", "_") + ".json")
+        write_json(path, {"schema_version": 2, "ledger_sha256": file_digest(member(root, "events.jsonl")),
+                         "meta": json.loads(member(root, "meta.json").read_text(encoding="utf-8"))})
+        return path
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=["append", "events", "context", "snapshot", "rebuild", "timeline"])
+    parser.add_argument("slug")
+    parser.add_argument("kind", nargs="?")
+    parser.add_argument("data", nargs="?")
+    parser.add_argument("--input", help="JSON payload: kind, data, source_refs, related_record_ids, supersedes, occurred_at")
+    parser.add_argument("--base-dir", default="crushes")
+    parser.add_argument("--last", type=int, default=20)
+    parser.add_argument("--type", dest="kind_filter", choices=sorted(KINDS))
+    parser.add_argument("--query")
+    parser.add_argument("--history", action="store_true")
     args = parser.parse_args()
-    base_dir = Path(args.base_dir)
-
-    if args.cmd == "append":
-        try:
-            data = json.loads(args.data)
-        except json.JSONDecodeError as e:
-            logger.error("❌ data 必须是合法 JSON：%s", e)
+    base = Path(args.base_dir)
+    try:
+        if args.command == "append":
+            payload = json.loads(Path(args.input).read_text(encoding="utf-8")) if args.input else {"kind": args.kind, "data": json.loads(args.data or "{}")}
+            output = append_records(args.slug, [payload], base)[0]
+        elif args.command in {"events", "timeline"}:
+            output = get_recent_events(args.slug, args.last, [args.kind_filter] if args.kind_filter else None, base, include_history=args.history)
+        elif args.command == "context":
+            print(load_context(args.slug, base_dir=base, query=args.query, kinds=[args.kind_filter] if args.kind_filter else None, limit=args.last))
             return
-        append_event(args.slug, args.event_type, data, base_dir)
-        logger.info("✅ 事件已记录：%s", args.event_type)
-
-    elif args.cmd == "events":
-        types = [args.event_type] if args.event_type else None
-        events = get_recent_events(args.slug, args.last, types, base_dir)
-        for event in events:
-            print(json.dumps(event, ensure_ascii=False))
-        if not events:
-            logger.info("暂无事件记录")
-
-    elif args.cmd == "context":
-        print(load_context(args.slug, args.with_strategy, base_dir))
-
-    elif args.cmd == "snapshot":
-        take_snapshot(args.slug, base_dir)
-
-    elif args.cmd == "timeline":
-        all_events = get_recent_events(args.slug, n=100_000, base_dir=base_dir)
-        print(_format_timeline(all_events))
-
-    elif args.cmd == "rebuild":
-        state = rebuild_state_from_events(args.slug, base_dir)
-        print(json.dumps(state, ensure_ascii=False, indent=2))
+        elif args.command == "snapshot":
+            output = str(take_snapshot(args.slug, base))
+        else:
+            output = rebuild_state_from_events(args.slug, base)
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+    except (ValueError, OSError, RuntimeError, TypeError) as exc:
+        parser.error(str(exc))
 
 
 if __name__ == "__main__":

@@ -1,336 +1,140 @@
-"""tests/test_memory.py — memory.py 的 pytest 测试套件"""
 import json
 import pytest
-from datetime import date
-from pathlib import Path
-
-from tools.memory import (
-    _parse_frontmatter,
-    _parse_body_sections,
-    _render_frontmatter,
-    append_event,
-    get_recent_events,
-    load_context,
-    rebuild_state_from_events,
-    take_snapshot,
-    update_state,
-)
-
-
-# ─── Fixtures ─────────────────────────────────────────────────────────────────
-
-
-@pytest.fixture
-def base_dir(tmp_path: Path) -> Path:
-    return tmp_path / "crushes"
-
-
-@pytest.fixture
-def slug() -> str:
-    return "testcrush"
-
-
-@pytest.fixture
-def crush_dir(base_dir: Path, slug: str) -> Path:
-    d = base_dir / slug
-    d.mkdir(parents=True)
-    (d / "events.jsonl").touch()
-    (d / "meta.json").write_text(
-        json.dumps({"slug": slug, "event_count": 0, "updated_at": "2026-01-01T00:00:00"}),
-        encoding="utf-8",
-    )
-    (d / "profile.md").write_text(
-        "---\nnickname: 测试\nslug: testcrush\n---\n\n## 性格画像\n\n测试画像\n",
-        encoding="utf-8",
-    )
-    (d / "state.md").write_text(
-        "---\ncurrent_stage: 破冰期\nsignal_score: null\nscore_trend: stable\n---\n\n"
-        "## 当前状态（一句话）\n\n初始状态\n",
-        encoding="utf-8",
-    )
-    (d / "strategy.md").write_text("# 策略\n\n测试策略\n", encoding="utf-8")
-    (d / "snapshots").mkdir()
-    return d
-
-
-# ─── _parse_frontmatter ────────────────────────────────────────────────────────
-
-
-def test_parse_frontmatter_basic() -> None:
-    content = '---\nname: 小美\nage: 22\nscore: null\n---\n\n正文'
-    fm, body = _parse_frontmatter(content)
-    assert fm["name"] == "小美"
-    assert fm["age"] == 22
-    assert fm["score"] is None
-    assert "正文" in body
-
-
-def test_parse_frontmatter_quoted_strings() -> None:
-    content = '---\nnickname: "测试用户"\n---\n\n正文'
-    fm, _ = _parse_frontmatter(content)
-    assert fm["nickname"] == "测试用户"
-
-
-def test_parse_frontmatter_no_frontmatter() -> None:
-    content = "只是正文，没有 frontmatter"
-    fm, body = _parse_frontmatter(content)
-    assert fm == {}
-    assert body == content
-
-
-# ─── _render_frontmatter ──────────────────────────────────────────────────────
-
-
-def test_render_frontmatter_roundtrip() -> None:
-    original = '---\nname: 小美\nage: 22\nscore: null\n---\n\n正文'
-    fm, body = _parse_frontmatter(original)
-    rendered = _render_frontmatter(fm, body)
-    fm2, body2 = _parse_frontmatter(rendered)
-    assert fm2["name"] == "小美"
-    assert fm2["age"] == 22
-    assert fm2["score"] is None
-    assert "正文" in body2
-
-
-def test_render_frontmatter_none_value() -> None:
-    result = _render_frontmatter({"key": None}, "\n正文")
-    assert "key: null" in result
-
-
-# ─── _parse_body_sections ─────────────────────────────────────────────────────
-
-
-def test_parse_body_sections_basic() -> None:
-    body = "\n## 第一节\n\n内容一\n\n## 第二节\n\n内容二\n"
-    sections = _parse_body_sections(body)
-    assert sections["## 第一节"] == "内容一"
-    assert sections["## 第二节"] == "内容二"
-
-
-# ─── append_event ─────────────────────────────────────────────────────────────
-
-
-def test_append_event_writes_jsonl(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    append_event(slug, "profile_created", {"nickname": "小美"}, base_dir)
-    lines = (crush_dir / "events.jsonl").read_text(encoding="utf-8").strip().splitlines()
-    assert len(lines) == 1
-    event = json.loads(lines[0])
-    assert event["type"] == "profile_created"
-    assert event["data"]["nickname"] == "小美"
-    assert event["slug"] == slug
-    assert event["v"] == 1
-
-
-def test_append_event_increments_event_count(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    append_event(slug, "signal_recorded", {"direction": "green", "content": "秒回"}, base_dir)
-    meta = json.loads((crush_dir / "meta.json").read_text(encoding="utf-8"))
-    assert meta["event_count"] == 1
-
-
-def test_append_event_multiple_increments(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    for _ in range(3):
-        append_event(slug, "signal_recorded", {"direction": "green", "content": "x"}, base_dir)
-    meta = json.loads((crush_dir / "meta.json").read_text(encoding="utf-8"))
-    assert meta["event_count"] == 3
-
-
-def test_append_event_invalid_type(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    with pytest.raises(ValueError, match="未知事件类型"):
-        append_event(slug, "invalid_type", {}, base_dir)
-
-
-def test_append_event_missing_slug(base_dir: Path) -> None:
-    with pytest.raises(FileNotFoundError):
-        append_event("nonexistent", "profile_created", {}, base_dir)
-
-
-# ─── get_recent_events ────────────────────────────────────────────────────────
-
-
-def test_get_recent_events_returns_n(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    for i in range(7):
-        append_event(slug, "signal_recorded", {"content": f"信号{i}", "direction": "green"}, base_dir)
-    events = get_recent_events(slug, n=5, base_dir=base_dir)
-    assert len(events) == 5
-    assert events[-1]["data"]["content"] == "信号6"
-
-
-def test_get_recent_events_filters_by_type(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    append_event(slug, "signal_recorded", {"direction": "green", "content": "好"}, base_dir)
-    append_event(slug, "analysis_done", {"score": 15, "stage": "升温期", "summary": "ok"}, base_dir)
-    events = get_recent_events(slug, n=10, event_types=["analysis_done"], base_dir=base_dir)
-    assert len(events) == 1
-    assert events[0]["type"] == "analysis_done"
-
-
-def test_get_recent_events_empty_file(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    events = get_recent_events(slug, base_dir=base_dir)
-    assert events == []
-
-
-def test_get_recent_events_no_file(base_dir: Path) -> None:
-    (base_dir / "ghost").mkdir(parents=True)
-    events = get_recent_events("ghost", base_dir=base_dir)
-    assert events == []
-
-
-# ─── load_context ─────────────────────────────────────────────────────────────
-
-
-def test_load_context_includes_profile_and_state(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    ctx = load_context(slug, base_dir=base_dir)
-    assert "[档案]" in ctx
-    assert "[状态]" in ctx
-    assert "测试画像" in ctx
-    assert "初始状态" in ctx
-
-
-def test_load_context_with_strategy(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    ctx = load_context(slug, include_strategy=True, base_dir=base_dir)
-    assert "[策略]" in ctx
-    assert "测试策略" in ctx
-
-
-def test_load_context_without_strategy(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    ctx = load_context(slug, include_strategy=False, base_dir=base_dir)
-    assert "[策略]" not in ctx
-
-
-# ─── update_state ─────────────────────────────────────────────────────────────
-
-
-def test_update_state_merges_frontmatter(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    update_state(slug, {"signal_score": 17, "current_stage": "暧昧期"}, {}, base_dir)
-    fm, _ = _parse_frontmatter((crush_dir / "state.md").read_text(encoding="utf-8"))
-    assert fm["signal_score"] == 17
-    assert fm["current_stage"] == "暧昧期"
-
-
-def test_update_state_preserves_existing_fields(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    update_state(slug, {"signal_score": 10}, {}, base_dir)
-    update_state(slug, {"current_stage": "升温期"}, {}, base_dir)
-    fm, _ = _parse_frontmatter((crush_dir / "state.md").read_text(encoding="utf-8"))
-    assert fm["signal_score"] == 10
-    assert fm["current_stage"] == "升温期"
-
-
-def test_update_state_merges_sections(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    update_state(slug, {}, {"## 当前状态（一句话）": "ta开始主动找我了"}, base_dir)
-    content = (crush_dir / "state.md").read_text(encoding="utf-8")
-    assert "ta开始主动找我了" in content
-
-
-def test_update_state_syncs_meta_stage(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    update_state(slug, {"current_stage": "暧昧期"}, {}, base_dir)
-    meta = json.loads((crush_dir / "meta.json").read_text(encoding="utf-8"))
-    assert meta["current_stage"] == "暧昧期"
-
-
-def test_update_state_syncs_meta_score(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    update_state(slug, {"signal_score": 18}, {}, base_dir)
-    meta = json.loads((crush_dir / "meta.json").read_text(encoding="utf-8"))
-    assert meta["signal_score"] == 18
-
-
-def test_update_state_missing_slug(base_dir: Path) -> None:
-    with pytest.raises(FileNotFoundError):
-        update_state("nonexistent", {}, {}, base_dir)
-
-
-# ─── take_snapshot ────────────────────────────────────────────────────────────
-
-
-def test_take_snapshot_creates_file(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    snap_path = take_snapshot(slug, base_dir)
-    assert snap_path.exists()
-    snap = json.loads(snap_path.read_text(encoding="utf-8"))
-    assert snap["slug"] == slug
-    assert snap["snapshot_date"] == date.today().isoformat()
-
-
-def test_take_snapshot_includes_meta(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    snap_path = take_snapshot(slug, base_dir)
-    snap = json.loads(snap_path.read_text(encoding="utf-8"))
-    assert "meta" in snap
-    assert snap["meta"]["slug"] == slug
-
-
-def test_take_snapshot_updates_last_snapshot(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    take_snapshot(slug, base_dir)
-    meta = json.loads((crush_dir / "meta.json").read_text(encoding="utf-8"))
-    assert meta["last_snapshot"] == date.today().isoformat()
-
-
-# ─── rebuild_state_from_events ────────────────────────────────────────────────
-
-
-def test_rebuild_state_tracks_stage_changes(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    append_event(slug, "stage_changed", {"from": "破冰期", "to": "升温期"}, base_dir)
-    append_event(slug, "stage_changed", {"from": "升温期", "to": "暧昧期"}, base_dir)
-    state = rebuild_state_from_events(slug, base_dir)
-    assert state["current_stage"] == "暧昧期"
-
-
-def test_rebuild_state_tracks_scores_and_trend(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    append_event(slug, "analysis_done", {"score": 10, "stage": "升温期", "summary": "ok"}, base_dir)
-    append_event(slug, "analysis_done", {"score": 15, "stage": "暧昧期", "summary": "好"}, base_dir)
-    state = rebuild_state_from_events(slug, base_dir)
-    assert state["signal_score"] == 15
-    assert state["last_signal_score"] == 10
-    assert state["score_trend"] == "up"
-
-
-def test_rebuild_state_score_trend_down(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    append_event(slug, "analysis_done", {"score": 18, "stage": "暧昧期", "summary": "好"}, base_dir)
-    append_event(slug, "analysis_done", {"score": 12, "stage": "升温期", "summary": "变冷"}, base_dir)
-    state = rebuild_state_from_events(slug, base_dir)
-    assert state["score_trend"] == "down"
-
-
-def test_rebuild_state_empty_events(crush_dir: Path, base_dir: Path, slug: str) -> None:
-    state = rebuild_state_from_events(slug, base_dir)
-    assert state["current_stage"] == "未知"
-    assert state["signal_score"] is None
-
-
-# ─── P2 regression: frontmatter must not corrupt identifier fields (C5) ────────
-
-
-def test_parse_frontmatter_preserves_leading_zero_slug() -> None:
-    """slug 是档案主键，含前导零时绝不能被强转成 int（007 -> 7 会损坏目录查找）。"""
-    fm, _ = _parse_frontmatter("---\nslug: 007\nnickname: 小美\n---\n\n正文")
-    assert fm["slug"] == "007"
-    assert isinstance(fm["slug"], str)
-
-
-def test_frontmatter_roundtrip_preserves_leading_zero_slug() -> None:
-    """parse -> render -> parse 往返必须保住前导零（update_state 每次都会触发这条往返）。"""
-    fm, body = _parse_frontmatter("---\nslug: 007\n---\n\nbody")
-    fm2, _ = _parse_frontmatter(_render_frontmatter(fm, body))
-    assert fm2["slug"] == "007"
-
-
-# ─── P2 regression: JSONL append must survive a truncated last line (C4) ───────
-
-
-def test_append_event_after_truncated_line_keeps_new_event(
-    crush_dir: Path, base_dir: Path, slug: str
-) -> None:
-    """上次写入崩溃留下半行（无尾换行）时，新事件必须独立可读，而非被拼接进损坏行后一起丢失。"""
-    events_path = crush_dir / "events.jsonl"
-    events_path.write_text('{"ts": "2026-01-01T00:00:00", "type": "signal_rec', encoding="utf-8")
-    append_event(slug, "signal_recorded", {"direction": "green", "content": "新事件"}, base_dir)
-    events = get_recent_events(slug, n=10, base_dir=base_dir)
-    assert any(e["data"].get("content") == "新事件" for e in events)
-
-
-def test_event_count_matches_readable_after_corruption(
-    crush_dir: Path, base_dir: Path, slug: str
-) -> None:
-    """meta.event_count 必须等于实际可读事件数，不能在存在损坏行时盲目自增而漂移。"""
-    events_path = crush_dir / "events.jsonl"
-    events_path.write_text('{"bad json no close', encoding="utf-8")
-    append_event(slug, "signal_recorded", {"direction": "green", "content": "x"}, base_dir)
-    meta = json.loads((crush_dir / "meta.json").read_text(encoding="utf-8"))
-    readable = get_recent_events(slug, n=10_000, base_dir=base_dir)
-    assert meta["event_count"] == len(readable)
+from tools import memory
+from tools.memory import append_event, append_records, get_recent_events, load_context, rebuild_state_from_events, take_snapshot
+from tools.time_tracker import import_messages
+
+
+def report(base,source,summary='她拒绝约会'):
+    return append_event('alice','user_report',{'summary':summary},base,source_refs=source)
+
+
+def test_no_implicit_profile(tmp_path,source):
+    base=tmp_path/'none'
+    with pytest.raises(FileNotFoundError):report(base,source)
+    assert not base.exists()
+
+
+def test_repeat_is_idempotent_and_drafts_not_interactions(base,source):
+    r=report(base,source)
+    assert report(base,source)==r
+    append_event('alice','advice',{'summary':'邀请喝咖啡','draft':'周末喝杯咖啡？'},base,related_record_ids=[r['record_id']])
+    append_event('alice','assessment',{'summary':'信息不足'},base,related_record_ids=[r['record_id']])
+    meta=json.loads((base/'alice/meta.json').read_text())
+    assert meta['record_count']==3 and meta['interaction_count']==0 and meta['last_interaction'] is None
+
+
+def test_correction_invalidates_transitive_judgments(base,source):
+    r=report(base,source)
+    a=append_event('alice','assessment',{'summary':'旧判断','supporting_ids':[r['record_id']]},base)
+    b=append_event('alice','advice',{'summary':'旧建议'},base,related_record_ids=[a['record_id']])
+    append_event('alice','correction',{'summary':'那句话是第三方说的'},base,source_refs=source,supersedes=[r['record_id']])
+    records=get_recent_events('alice',base_dir=base,include_history=True)
+    statuses={x['record_id']:x['status'] for x in records}
+    assert statuses[r['record_id']]=='invalidated'
+    assert statuses[a['record_id']]==statuses[b['record_id']]=='needs_review'
+    assert '旧判断' not in (base/'alice/state.md').read_text(encoding='utf-8')
+    with pytest.raises(ValueError,match='invalidated'):append_event('alice','assessment',{'summary':'again'},base,related_record_ids=[a['record_id']])
+
+
+def test_identity_correction_and_reimport(base,exported,source):
+    msgs=exported().messages
+    import_messages('alice',msgs,base)
+    identity=next(r for r in get_recent_events('alice',base_dir=base) if r['kind']=='identity_mapping' and r['data']['role']=='target')
+    append_event('alice','identity_mapping',{**identity['data'],'role':'third_party','summary':'实际是朋友'},base,
+                 source_refs=source,supersedes=[identity['record_id']])
+    assert json.loads((base/'alice/meta.json').read_text())['needs_review_count']==1
+    import_messages('alice',msgs,base)
+    interactions=[json.loads(x) for x in (base/'alice/interactions.jsonl').read_text(encoding='utf-8').splitlines()]
+    assert len(interactions)==2
+    assert interactions[-1]['message']['role']=='third_party'
+
+
+def test_actions_require_confirmation_and_outcomes_reference_actions(base,source):
+    advice=append_event('alice','advice',{'summary':'还没发的草稿'},base)
+    with pytest.raises(ValueError,match='confirmation'):
+        append_event('alice','action_report',{'summary':'发消息'},base,source_refs=source)
+    with pytest.raises(ValueError,match='action_report'):
+        append_event('alice','outcome',{'summary':'回复了','action_id':advice['record_id']},base,source_refs=source)
+    action=append_event('alice','action_report',{'summary':'我实际发了不同的内容','confirmed':True},base,source_refs=source)
+    outcome=append_event('alice','outcome',{'summary':'她拒绝','action_id':action['record_id']},base,source_refs=source)
+    assert outcome['related_record_ids']==[action['record_id']]
+
+
+@pytest.mark.parametrize('kind',['user_report','observation','preference','identity_mapping','action_report','outcome','correction'])
+def test_factual_record_requires_source(base,kind):
+    with pytest.raises(ValueError):append_event('alice',kind,{'summary':'x'},base)
+
+
+def test_batch_validation_writes_nothing(base,source):
+    before=(base/'alice/events.jsonl').read_bytes()
+    with pytest.raises(ValueError):append_records('alice',[{'kind':'user_report','data':{'summary':'valid'},'source_refs':source},
+                                                         {'kind':'unknown','data':{'summary':'invalid'}}],base)
+    assert (base/'alice/events.jsonl').read_bytes()==before
+
+
+def test_manual_edits_detected_preserved_and_rebuilt(base,source):
+    report(base,source)
+    p=base/'alice/state.md';p.write_text('手工笔记',encoding='utf-8')
+    with pytest.raises(RuntimeError,match='Edited'):load_context('alice',base_dir=base)
+    rebuild_state_from_events('alice',base)
+    assert any(p.read_text(encoding='utf-8')=='手工笔记' for p in (base/'alice/versions').glob('*/files/state.md'))
+    assert '手工笔记' not in load_context('alice',base_dir=base)
+
+
+def test_interrupted_commit_recovers_without_losing_event(base,source,monkeypatch):
+    original=memory._project
+    def fail(*args):raise OSError('injected failure')
+    monkeypatch.setattr(memory,'_project',fail)
+    with pytest.raises(OSError):report(base,source)
+    with pytest.raises(RuntimeError,match='Incomplete'):load_context('alice',base_dir=base)
+    monkeypatch.setattr(memory,'_project',original)
+    rebuild_state_from_events('alice',base)
+    assert get_recent_events('alice',base_dir=base)[0]['data']['summary']=='她拒绝约会'
+
+
+def test_invalid_ledger_never_silently_drops_line(base,source):
+    report(base,source)
+    p=base/'alice/events.jsonl';p.write_text(p.read_text(encoding='utf-8')+'BROKEN\n',encoding='utf-8')
+    with pytest.raises(ValueError,match='line 2'):rebuild_state_from_events('alice',base)
+    assert p.read_text(encoding='utf-8').endswith('BROKEN\n')
+
+
+def test_context_includes_dependencies_and_discloses_scope(base,source):
+    r=report(base,source,'早期明确拒绝')
+    for i in range(6):report(base,source,f'无关记录 {i}')
+    a=append_event('alice','assessment',{'summary':'当前仍不能推断好感','opposing_ids':[r['record_id']]},base)
+    result=json.loads(load_context('alice',base_dir=base,query='当前',limit=1))
+    assert [x['record_id'] for x in result['records']]==[r['record_id'],a['record_id']]
+    assert result['selected_records']==2 and result['total_records']==8
+    assert 'not the complete history' in result['scope']
+
+
+def test_snapshot_is_valid_json_and_rebuild_is_stable(base,source):
+    report(base,source)
+    before={name:(base/'alice'/name).read_bytes() for name in memory.PROJECTIONS}
+    path=take_snapshot('alice',base)
+    assert json.loads(path.read_text())['schema_version']==2
+    rebuild_state_from_events('alice',base)
+    assert before=={name:(base/'alice'/name).read_bytes() for name in memory.PROJECTIONS}
+
+
+def test_unknown_identity_is_revisionable(base,source,exported):
+    msgs=exported([{'senderId':'x','localId':1,'content':'你好'}],conversationType='group').messages
+    import_messages('alice',msgs,base)
+    identity=next(r for r in get_recent_events('alice',base_dir=base) if r['kind']=='identity_mapping')
+    assert identity['data']['role']=='unknown'
+    append_event('alice','identity_mapping',{**identity['data'],'role':'third_party','summary':'确认是朋友'},base,
+                 source_refs=source,supersedes=[identity['record_id']])
+    import_messages('alice',msgs,base)
+    observation=next(r for r in get_recent_events('alice',base_dir=base) if r['kind']=='observation')
+    assert observation['data']['message']['role']=='third_party'
+
+
+def test_reimport_cannot_revive_a_corrected_fact(base,source,exported):
+    msgs=exported().messages;import_messages('alice',msgs,base)
+    observation=next(r for r in get_recent_events('alice',base_dir=base) if r['kind']=='observation')
+    append_event('alice','correction',{'summary':'这条内容来自错误导出，撤回'},base,source_refs=source,supersedes=[observation['record_id']])
+    before=(base/'alice/events.jsonl').read_bytes()
+    with pytest.raises(ValueError,match='re-verification'):import_messages('alice',msgs,base)
+    assert (base/'alice/events.jsonl').read_bytes()==before

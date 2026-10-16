@@ -1,384 +1,63 @@
-"""tests/test_time_tracker.py — time_tracker.py 的 pytest 测试套件"""
+from datetime import datetime, timezone
 import json
 import pytest
-from datetime import datetime, timedelta
-from pathlib import Path
-
-from tools.time_tracker import (
-    VALID_INTERACTION_TYPES,
-    record_interaction,
-    get_interactions,
-    get_reply_times,
-    get_interaction_frequency,
-    analyze_timeline,
-    analyze_reply_times,
-    analyze_golden_hours,
-)
+from tools.time_tracker import import_messages, get_interactions, record_interaction, analyze_timeline, analyze_reply_times
 
 
-@pytest.fixture
-def base_dir(tmp_path: Path) -> Path:
-    return tmp_path / "crushes"
+def test_idempotent_import_and_no_last_interaction_inflation(base,exported):
+    msgs=exported().messages
+    assert import_messages('alice',msgs,base)['imported']==2
+    before=(base/'alice/meta.json').read_bytes()
+    assert import_messages('alice',msgs,base)['duplicates']==2
+    assert (base/'alice/meta.json').read_bytes()==before
+    assert len(get_interactions('alice',base_dir=base))==2
+    assert analyze_reply_times('alice',base_dir=base)['samples'][0]['seconds']==60
 
 
-@pytest.fixture
-def slug() -> str:
-    return "testcrush"
+def test_time_window_has_explicit_anchor(base,exported):
+    import_messages('alice',exported().messages,base)
+    now=datetime(2026,5,11,tzinfo=timezone.utc)
+    assert len(get_interactions('alice',2,base,now=now))==2
+    assert len(get_interactions('alice',2,base,now=datetime(2027,1,1,tzinfo=timezone.utc)))==0
+    assert len(get_interactions('alice',base_dir=base))==2
+    with pytest.raises(ValueError):get_interactions('alice',2,base,now=datetime(2026,5,11))
 
 
-@pytest.fixture
-def crush_dir(base_dir: Path, slug: str) -> Path:
-    d = base_dir / slug
-    d.mkdir(parents=True)
-    (d / "interactions.jsonl").touch()
-    (d / "meta.json").write_text(
-        json.dumps(
-            {
-                "slug": slug,
-                "event_count": 0,
-                "updated_at": "2026-01-01T00:00:00",
-                "interaction_count": 0,
-                "last_interaction": None,
-                "consecutive_days": 0,
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-    return d
+def test_unknown_event_time_never_defaults_to_now(base):
+    record_interaction('alice','meeting',{'summary':'上次确实见过面，忘了日期','confirmed':True},base_dir=base)
+    meta=json.loads((base/'alice/meta.json').read_text())
+    assert meta['last_interaction'] is None and meta['interaction_count']==1
+    assert len(get_interactions('alice',base_dir=base))==1
+    assert get_interactions('alice',30,base)==[]
 
 
-class TestRecordInteraction:
-    def test_appends_chat_sent(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        ts = datetime(2026, 5, 15, 22, 30, 0)
-        record_interaction(
-            slug,
-            "chat_sent",
-            {"content_summary": "问她周末有没有空"},
-            ts=ts,
-            base_dir=base_dir,
-        )
-        lines = (crush_dir / "interactions.jsonl").read_text(encoding="utf-8").strip().splitlines()
-        assert len(lines) == 1
-        record = json.loads(lines[0])
-        assert record["type"] == "chat_sent"
-        assert record["ts"] == "2026-05-15T22:30:00"
-        assert record["data"]["hour"] == 22
-        assert record["data"]["day_of_week"] == "fri"
-        assert record["data"]["is_initiator"] is True
-
-    def test_appends_chat_received_with_reply_delay(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        ts = datetime(2026, 5, 15, 22, 32, 0)
-        record_interaction(
-            slug,
-            "chat_received",
-            {"content_summary": "有空呀", "reply_delay_min": 2},
-            ts=ts,
-            base_dir=base_dir,
-        )
-        lines = (crush_dir / "interactions.jsonl").read_text(encoding="utf-8").strip().splitlines()
-        record = json.loads(lines[0])
-        assert record["data"]["reply_delay_min"] == 2
-        assert record["data"]["is_initiator"] is False
-
-    def test_appends_meeting(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        ts = datetime(2026, 5, 17, 19, 0, 0)
-        record_interaction(
-            slug,
-            "meeting",
-            {"duration_min": 180, "activity": "咖啡+散步", "location": "外滩"},
-            ts=ts,
-            base_dir=base_dir,
-        )
-        lines = (crush_dir / "interactions.jsonl").read_text(encoding="utf-8").strip().splitlines()
-        record = json.loads(lines[0])
-        assert record["type"] == "meeting"
-        assert record["data"]["duration_min"] == 180
-
-    def test_raises_on_unknown_type(self, base_dir: Path, slug: str) -> None:
-        with pytest.raises(ValueError, match="未知互动类型"):
-            record_interaction(slug, "unknown_type", {}, base_dir=base_dir)
-
-    def test_raises_on_missing_slug(self, base_dir: Path) -> None:
-        with pytest.raises(FileNotFoundError):
-            record_interaction("nonexistent", "chat_sent", {"content_summary": "hi"}, base_dir=base_dir)
-
-    def test_updates_meta_json(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        ts = datetime(2026, 5, 15, 22, 30, 0)
-        record_interaction(slug, "chat_sent", {"content_summary": "hi"}, ts=ts, base_dir=base_dir)
-        meta = json.loads((crush_dir / "meta.json").read_text(encoding="utf-8"))
-        assert meta["interaction_count"] == 1
-        assert meta["last_interaction"] == "2026-05-15T22:30:00"
-
-    def test_deduplicates_same_ts_and_type(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        ts = datetime(2026, 5, 15, 22, 30, 0)
-        data = {"content_summary": "hi"}
-        record_interaction(slug, "chat_sent", data, ts=ts, base_dir=base_dir)
-        record_interaction(slug, "chat_sent", data, ts=ts, base_dir=base_dir)
-        lines = (crush_dir / "interactions.jsonl").read_text(encoding="utf-8").strip().splitlines()
-        assert len(lines) == 1
-
-    def test_defaults_ts_to_now(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        record_interaction(slug, "chat_sent", {"content_summary": "hi"}, base_dir=base_dir)
-        lines = (crush_dir / "interactions.jsonl").read_text(encoding="utf-8").strip().splitlines()
-        record = json.loads(lines[0])
-        assert record["ts"].startswith("202")
+def test_unconfirmed_event_rejected(base):
+    with pytest.raises(ValueError,match='confirmed'):
+        record_interaction('alice','chat_sent',{'summary':'准备发送'},base_dir=base)
 
 
-class TestGetInteractions:
-    def test_returns_all_by_default(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        for i in range(5):
-            ts = datetime(2026, 5, 10 + i, 10, 0, 0)
-            record_interaction(slug, "chat_sent", {"content_summary": f"msg {i}"}, ts=ts, base_dir=base_dir)
-        result = get_interactions(slug, base_dir=base_dir)
-        assert len(result) == 5
-
-    def test_filters_by_type(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        ts1 = datetime(2026, 5, 10, 10, 0, 0)
-        ts2 = datetime(2026, 5, 10, 10, 5, 0)
-        record_interaction(slug, "chat_sent", {"content_summary": "hi"}, ts=ts1, base_dir=base_dir)
-        record_interaction(slug, "meeting", {"duration_min": 60, "activity": "coffee"}, ts=ts2, base_dir=base_dir)
-        result = get_interactions(slug, types=["meeting"], base_dir=base_dir)
-        assert len(result) == 1
-        assert result[0]["type"] == "meeting"
-
-    def test_filters_by_days(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        old_ts = datetime.now() - timedelta(days=30)
-        recent_ts = datetime.now() - timedelta(days=1)
-        record_interaction(slug, "chat_sent", {"content_summary": "old"}, ts=old_ts, base_dir=base_dir)
-        record_interaction(slug, "chat_sent", {"content_summary": "new"}, ts=recent_ts, base_dir=base_dir)
-        result = get_interactions(slug, days=7, base_dir=base_dir)
-        assert len(result) == 1
-        assert result[0]["data"]["content_summary"] == "new"
-
-    def test_returns_empty_for_no_file(self, base_dir: Path, slug: str) -> None:
-        d = base_dir / slug
-        d.mkdir(parents=True)
-        (d / "interactions.jsonl").touch()
-        result = get_interactions(slug, base_dir=base_dir)
-        assert result == []
+def test_statistics_do_not_recommend_messaging_hours(base,exported):
+    import_messages('alice',exported().messages,base)
+    report=analyze_timeline('alice',base_dir=base)
+    assert report['active_hours']=={'10':2}
+    assert 'Not an ideal' in report['active_hours_note']
+    assert 'score' not in json.dumps(report)
 
 
-class TestGetReplyTimes:
-    def test_returns_only_received_with_delay(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        ts1 = datetime(2026, 5, 10, 10, 0, 0)
-        ts2 = datetime(2026, 5, 10, 10, 5, 0)
-        ts3 = datetime(2026, 5, 10, 10, 10, 0)
-        record_interaction(slug, "chat_sent", {"content_summary": "hi"}, ts=ts1, base_dir=base_dir)
-        record_interaction(slug, "chat_received", {"content_summary": "hey", "reply_delay_min": 5}, ts=ts2, base_dir=base_dir)
-        record_interaction(slug, "chat_received", {"content_summary": "no delay"}, ts=ts3, base_dir=base_dir)
-        result = get_reply_times(slug, base_dir=base_dir)
-        assert len(result) == 1
-        assert result[0]["data"]["reply_delay_min"] == 5
+def test_failed_import_is_atomic(base,exported):
+    msgs=exported().messages;import_messages('alice',msgs,base)
+    before=(base/'alice/events.jsonl').read_bytes()
+    msgs[-1].content='changed'
+    with pytest.raises(ValueError,match='Conflicting'):import_messages('alice',msgs,base)
+    assert (base/'alice/events.jsonl').read_bytes()==before
 
 
-class TestAnalyzeTimeline:
-    def _seed_interactions(self, base_dir: Path, slug: str) -> None:
-        now = datetime.now()
-        for day_offset in range(7):
-            day = now - timedelta(days=day_offset)
-            ts = day.replace(hour=20, minute=0, second=0, microsecond=0)
-            if day_offset in (3, 5):
-                continue
-            record_interaction(slug, "chat_sent", {"content_summary": f"msg d-{day_offset}"}, ts=ts, base_dir=base_dir)
-            recv_ts = day.replace(hour=20, minute=10, second=0, microsecond=0)
-            record_interaction(
-                slug, "chat_received",
-                {"content_summary": f"reply d-{day_offset}", "reply_delay_min": 10},
-                ts=recv_ts, base_dir=base_dir,
-            )
-
-    def test_counts_total_interactions(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        self._seed_interactions(base_dir, slug)
-        result = analyze_timeline(slug, days=7, base_dir=base_dir)
-        assert result["total"] == 10
-
-    def test_consecutive_days(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        self._seed_interactions(base_dir, slug)
-        result = analyze_timeline(slug, days=7, base_dir=base_dir)
-        assert result["current_streak"] >= 2
-
-    def test_max_consecutive(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        self._seed_interactions(base_dir, slug)
-        result = analyze_timeline(slug, days=7, base_dir=base_dir)
-        assert result["max_streak"] >= 3
-
-    def test_initiator_ratio(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        self._seed_interactions(base_dir, slug)
-        result = analyze_timeline(slug, days=7, base_dir=base_dir)
-        assert result["user_ratio"] == 50.0
-
-    def test_active_days(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        self._seed_interactions(base_dir, slug)
-        result = analyze_timeline(slug, days=7, base_dir=base_dir)
-        assert result["active_days"] == 5
-        assert result["total_days"] == 7
+def test_media_only_message_is_importable(base,exported):
+    result=exported([{'localId':1,'isSend':1,'type':'image','content':''}])
+    assert import_messages('alice',result.messages,base)['imported']==1
+    assert len(get_interactions('alice',base_dir=base))==1
 
 
-class TestAnalyzeReplyTimes:
-    def _seed_replies(self, base_dir: Path, slug: str) -> None:
-        delays = [2, 3, 5, 8, 12, 15, 25, 45, 90, 180, 300, 600, 1200]
-        now = datetime.now()
-        for i, delay in enumerate(delays):
-            ts = now - timedelta(days=i)
-            record_interaction(
-                slug, "chat_received",
-                {"content_summary": f"reply {i}", "reply_delay_min": delay},
-                ts=ts, base_dir=base_dir,
-            )
-
-    def test_average_and_median(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        self._seed_replies(base_dir, slug)
-        result = analyze_reply_times(slug, days=30, base_dir=base_dir)
-        assert result["average_min"] > 0
-        assert result["median_min"] > 0
-
-    def test_distribution_buckets(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        self._seed_replies(base_dir, slug)
-        result = analyze_reply_times(slug, days=30, base_dir=base_dir)
-        dist = result["distribution"]
-        assert dist["lte_5min"] > 0
-        assert dist["gt_4h"] > 0
-        total_pct = sum(dist.values())
-        assert abs(total_pct - 100.0) < 1.0
-
-    def test_empty_data(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        result = analyze_reply_times(slug, days=30, base_dir=base_dir)
-        assert result["average_min"] is None
-        assert result["median_min"] is None
-
-
-class TestAnalyzeGoldenHours:
-    def _seed_hourly(self, base_dir: Path, slug: str) -> None:
-        base = datetime.now() - timedelta(days=2)
-        for _ in range(8):
-            ts = base.replace(hour=21, minute=30, second=0, microsecond=0)
-            record_interaction(
-                slug, "chat_received",
-                {"content_summary": "night reply", "reply_delay_min": 5},
-                ts=ts, base_dir=base_dir,
-            )
-        for _ in range(3):
-            ts = base.replace(hour=12, minute=0, second=0, microsecond=0)
-            record_interaction(
-                slug, "chat_received",
-                {"content_summary": "lunch reply", "reply_delay_min": 10},
-                ts=ts, base_dir=base_dir,
-            )
-        ts = base.replace(hour=8, minute=0, second=0, microsecond=0)
-        record_interaction(
-            slug, "chat_received",
-            {"content_summary": "morning reply", "reply_delay_min": 15},
-            ts=ts, base_dir=base_dir,
-        )
-
-    def test_peak_hour(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        self._seed_hourly(base_dir, slug)
-        result = analyze_golden_hours(slug, days=30, base_dir=base_dir)
-        assert result["peak_hour"] == 21
-
-    def test_top_windows(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        self._seed_hourly(base_dir, slug)
-        result = analyze_golden_hours(slug, days=30, base_dir=base_dir)
-        assert len(result["top_windows"]) >= 1
-        assert result["top_windows"][0]["hour"] == 21
-
-    def test_empty_data(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        result = analyze_golden_hours(slug, days=30, base_dir=base_dir)
-        assert result["peak_hour"] is None
-        assert result["top_windows"] == []
-
-
-class TestAnalyzeMilestones:
-    def _seed_profile_and_events(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        (crush_dir / "profile.md").write_text(
-            "---\nnickname: 小雨\nslug: testcrush\ncreated_at: \"2026-04-10\"\n---\n\n## 性格画像\n\ntest\n",
-            encoding="utf-8",
-        )
-        events_path = crush_dir / "events.jsonl"
-        events = [
-            {"ts": "2026-04-10T14:00:00", "v": 1, "type": "profile_created", "slug": slug, "data": {"nickname": "小雨"}},
-            {"ts": "2026-04-18T10:00:00", "v": 1, "type": "stage_changed", "slug": slug, "data": {"from": "破冰期", "to": "升温期", "trigger": "test"}},
-            {"ts": "2026-05-02T10:00:00", "v": 1, "type": "stage_changed", "slug": slug, "data": {"from": "升温期", "to": "暧昧期", "trigger": "test"}},
-        ]
-        with events_path.open("w", encoding="utf-8") as f:
-            for e in events:
-                f.write(json.dumps(e, ensure_ascii=False) + "\n")
-
-    def test_stage_durations(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        self._seed_profile_and_events(crush_dir, base_dir, slug)
-        from tools.time_tracker import analyze_milestones
-        result = analyze_milestones(slug, base_dir=base_dir)
-        stages = result["stages"]
-        assert len(stages) >= 2
-        assert stages[0]["name"] == "破冰期"
-        assert stages[0]["days"] == 8
-        assert stages[1]["name"] == "升温期"
-        assert stages[1]["days"] == 14
-
-    def test_baseline_comparison(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        self._seed_profile_and_events(crush_dir, base_dir, slug)
-        from tools.time_tracker import analyze_milestones
-        result = analyze_milestones(slug, base_dir=base_dir)
-        for stage in result["stages"]:
-            assert "baseline_lo" in stage
-            assert "baseline_hi" in stage
-            assert "status" in stage
-
-    def test_total_days(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        self._seed_profile_and_events(crush_dir, base_dir, slug)
-        from tools.time_tracker import analyze_milestones
-        result = analyze_milestones(slug, base_dir=base_dir)
-        assert result["total_days"] >= 22
-
-
-class TestIntegration:
-    def test_full_workflow(self, crush_dir: Path, base_dir: Path, slug: str) -> None:
-        now = datetime.now()
-        for day in range(7):
-            ts_sent = now - timedelta(days=day, hours=3, minutes=0)
-            ts_sent = ts_sent.replace(second=0, microsecond=0)
-            record_interaction(slug, "chat_sent", {"content_summary": f"msg d-{day}"}, ts=ts_sent, base_dir=base_dir)
-            ts_recv = now - timedelta(days=day, hours=2, minutes=55 - (5 + day))
-            ts_recv = ts_recv.replace(second=0, microsecond=0)
-            record_interaction(
-                slug, "chat_received",
-                {"content_summary": f"reply d-{day}", "reply_delay_min": 5 + day},
-                ts=ts_recv, base_dir=base_dir,
-            )
-
-        meeting_day = now - timedelta(days=4)
-        ts_meeting = meeting_day.replace(hour=19, minute=0, second=0, microsecond=0)
-        record_interaction(
-            slug, "meeting",
-            {"duration_min": 120, "activity": "coffee"},
-            ts=ts_meeting, base_dir=base_dir,
-        )
-
-        tl = analyze_timeline(slug, days=30, base_dir=base_dir)
-        assert tl["total"] == 15
-
-        rt = analyze_reply_times(slug, days=30, base_dir=base_dir)
-        assert rt["average_min"] is not None
-
-        gh = analyze_golden_hours(slug, days=30, base_dir=base_dir)
-        assert gh["peak_hour"] is not None
-
-        meta = json.loads((crush_dir / "meta.json").read_text(encoding="utf-8"))
-        assert meta["interaction_count"] == 15
-
-
-class TestTruncatedLineRecovery:
-    """P2 regression (C4): a crash-truncated last line must not swallow the next record."""
-
-    def test_record_after_truncated_line_keeps_new_record(
-        self, crush_dir: Path, base_dir: Path, slug: str
-    ) -> None:
-        path = crush_dir / "interactions.jsonl"
-        path.write_text('{"ts": "2026-01-01T00:00:00", "type": "chat_se', encoding="utf-8")
-        record_interaction(
-            slug, "chat_sent", {"content_summary": "新消息"},
-            ts=datetime(2026, 5, 20, 10, 0, 0), base_dir=base_dir,
-        )
-        records = get_interactions(slug, base_dir=base_dir)
-        assert any(r["data"].get("content_summary") == "新消息" for r in records)
+@pytest.mark.parametrize('days',[0,-1])
+def test_invalid_window_rejected(base,days):
+    with pytest.raises(ValueError):analyze_timeline('alice',days,base)
