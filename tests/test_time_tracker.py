@@ -25,7 +25,7 @@ def test_time_window_has_explicit_anchor(base,exported):
 
 def test_unknown_event_time_never_defaults_to_now(base):
     record_interaction('alice','meeting',{'summary':'上次确实见过面，忘了日期','confirmed':True},base_dir=base)
-    meta=json.loads((base/'alice/meta.json').read_text())
+    meta=json.loads((base/'alice/meta.json').read_text(encoding='utf-8'))
     assert meta['last_interaction'] is None and meta['interaction_count']==1
     assert len(get_interactions('alice',base_dir=base))==1
     assert get_interactions('alice',30,base)==[]

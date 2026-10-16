@@ -36,7 +36,7 @@ def test_migrate_preserves_legacy_no_promotion_and_is_repeatable(legacy):
     assert get_recent_events('alice',base_dir=legacy)==[]
     for name,data in before.items():
         assert (root/name if name.startswith('memories/') else root/'legacy/v1'/name).read_bytes()==data
-    meta=json.loads((root/'meta.json').read_text())
+    meta=json.loads((root/'meta.json').read_text(encoding='utf-8'))
     assert 'signal_score' not in meta and meta['interaction_count']==0
     after=state(root);assert migrate('alice',legacy)['status']=='already_v2';assert state(root)==after
     rollback_crush('alice',result['backup'],legacy)

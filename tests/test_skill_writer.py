@@ -21,7 +21,7 @@ def test_unicode_initialization_is_idempotent(tmp_path):
     before=state(root)
     assert init_crush('小美',tmp_path)==root
     assert state(root)==before
-    assert json.loads((root/'meta.json').read_text())['schema_version']==2
+    assert json.loads((root/'meta.json').read_text(encoding='utf-8'))['schema_version']==2
 
 
 def test_profile_backup_and_full_rollback(base,source):

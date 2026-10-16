@@ -20,7 +20,7 @@ def test_repeat_is_idempotent_and_drafts_not_interactions(base,source):
     assert report(base,source)==r
     append_event('alice','advice',{'summary':'邀请喝咖啡','draft':'周末喝杯咖啡？'},base,related_record_ids=[r['record_id']])
     append_event('alice','assessment',{'summary':'信息不足'},base,related_record_ids=[r['record_id']])
-    meta=json.loads((base/'alice/meta.json').read_text())
+    meta=json.loads((base/'alice/meta.json').read_text(encoding='utf-8'))
     assert meta['record_count']==3 and meta['interaction_count']==0 and meta['last_interaction'] is None
 
 
@@ -43,7 +43,7 @@ def test_identity_correction_and_reimport(base,exported,source):
     identity=next(r for r in get_recent_events('alice',base_dir=base) if r['kind']=='identity_mapping' and r['data']['role']=='target')
     append_event('alice','identity_mapping',{**identity['data'],'role':'third_party','summary':'实际是朋友'},base,
                  source_refs=source,supersedes=[identity['record_id']])
-    assert json.loads((base/'alice/meta.json').read_text())['needs_review_count']==1
+    assert json.loads((base/'alice/meta.json').read_text(encoding='utf-8'))['needs_review_count']==1
     import_messages('alice',msgs,base)
     interactions=[json.loads(x) for x in (base/'alice/interactions.jsonl').read_text(encoding='utf-8').splitlines()]
     assert len(interactions)==2
@@ -114,7 +114,7 @@ def test_snapshot_is_valid_json_and_rebuild_is_stable(base,source):
     report(base,source)
     before={name:(base/'alice'/name).read_bytes() for name in memory.PROJECTIONS}
     path=take_snapshot('alice',base)
-    assert json.loads(path.read_text())['schema_version']==2
+    assert json.loads(path.read_text(encoding='utf-8'))['schema_version']==2
     rebuild_state_from_events('alice',base)
     assert before=={name:(base/'alice'/name).read_bytes() for name in memory.PROJECTIONS}
 
