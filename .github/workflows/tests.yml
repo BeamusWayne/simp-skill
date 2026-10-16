@@ -6,7 +6,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -19,9 +23,6 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Run tests with coverage
-        run: pytest --cov=tools --cov-report=term-missing
-        # NOTE: the 80% coverage gate is intentionally NOT enforced yet.
-        # Baseline coverage could not be measured locally (offline environment).
-        # Once this workflow's first run reports the real number — and after the
-        # P2 work adds the missing tests for main()/_format_* helpers — enforce it
-        # by appending:  --cov-fail-under=80
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python -m pytest --cov=tools --cov-report=term-missing --cov-fail-under=85

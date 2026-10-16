@@ -23,3 +23,13 @@ docs/superpowers/
 # 编辑器
 .vscode/
 .idea/
+
+# Local test and model-run artifacts (synthetic fixtures remain tracked)
+.coverage
+.coverage.*
+.pytest_cache/
+htmlcov/
+coverage.xml
+evals/runs/
+evals/private/
+*.tmp

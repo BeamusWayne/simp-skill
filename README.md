@@ -1,288 +1,38 @@
-<div align="center">
+# simp-skill · 追爱军师
 
-# 💝 simp-skill
+帮助你理解恋爱语境、写出像自己的消息，并回顾真实互动。当前是 **v2 P0–P3 开发版**：取消感情评分和固定追求阶段，保留具体证据、相反解释与可修正的判断。尚未作为 v2.0 正式发布。
 
-> *"茫茫人海，一旦错过就不再。"*
+## 使用
 
-> *simp，是那个敢于真心喜欢一个人的人。这里教的，是把真心说出口的能力。*
+把整个仓库目录放入宿主的技能目录或通过宿主支持的 GitHub 技能安装方式安装，保留 SKILL.md、prompts、tools、docs 的相对位置。原生注册方式依宿主而异；`/simp` 是兼容表达，不能保证所有宿主都自动注册斜杠命令。当前已测试 Python 工具，不声明已完成各宿主安装测试。
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
-[![Claude Code](https://img.shields.io/badge/Claude%20Code-Skill-blueviolet)](https://claude.ai/code)
-[![追爱军师](https://img.shields.io/badge/追爱军师-Love%20Strategist-ff69b4)](https://github.com/BeamusWayne/simp-skill)
+原仓库的 Claude Code 安装位置仍保留为兼容说明：全局目录 `~/.claude/skills/simp-skill` 或项目目录 `.claude/skills/simp-skill`。验证本开发版本时应选择 `codex/simp-v2-p0-p3` 分支，不要把 main 的旧版与新工具混合。SKILL.md 保留原宿主的 `user-invocable: true` 字段；其他宿主是否接受扩展元数据须分别验证。
 
-<br>
+直接说“这句话怎么回更像我”“帮我看看这段聊天”，或使用 `/simp analyze`、`message`、`confess`、`progress`、`daily`、`crisis`、`quit`、`timeline`。简单改写无需建档。`mbti` 仅按显式请求讨论用户自述，不自动判型或算匹配分。模式 sweet/strategic/hybrid 仅改变语气。
 
-不教套路，不玩 PUA，只相信一件事——**真心，是最强的攻略。**<br>
-提供聊天记录、社交媒体截图、照片，生成信号分析报告。<br>
-**量化感情温度，定制追求策略，把心上人追到手。**
+## 工具快速开始
 
-<br>
+Python 3.12，基础解析和记忆使用标准库；照片元数据需要 Pillow。
 
-[快速开始](#快速开始) · [指令列表](#指令完整列表) · [危机处理](#危机处理覆盖范围) · [更新日志](CHANGELOG.md) · [English](README_EN.md)
-
-</div>
-
----
-
-## 它能帮你做什么
-
-
-| 功能           | 描述                      |
-| ------------ | ----------------------- |
-| 🔍 **信号解读**  | 帮你分析聊天记录，判断对方发出了什么信号    |
-| 📝 **情话生成**  | 根据对象性格和当前情境，生成专属情话      |
-| 🗺️ **策略规划** | 制定从破冰到表白的完整追求路线图        |
-| 💌 **表白定制**  | 帮你准备让对方难忘的表白词           |
-| 🆘 **危机处理**  | 被拒/冷落/翻车/友谊区，每种危机都有应对方案 |
-| 📊 **聊天分析**  | 自动分析微信/QQ聊天记录，量化感情温度    |
-| 🧬 **MBTI 分析** | 推断心上人 MBTI，输出 16 型专属追求策略与双方兼容性 |
-| 📈 **进度追踪**  | 阶段进度条 + 热度趋势对比，每次都能看到关系变化曲线 |
-| 🍃 **放弃判断**  | 帮你看清是真心还是执念，该继续还是该放下   |
-| ⏱️ **互动时间分析** | 互动频率追踪、追求阶段时长、回复时间分析、黄金时段建议 |
-
-
----
-
-## 两种风格，随时切换
-
-### 💖 纯情模式
-
-不算计，不套路，用真实的情感打动对方。适合感性的心上人，或者你就是想真诚地表达自己。
-
-> *"你笑的时候，我突然就不想说话了，只想多看一会儿。"*
-
-### 🎯 策略模式
-
-懂得何时推进、何时留白，让对方主动靠近。适合理性的心上人，或者暧昧陷入僵局。
-
-> *"你刚才说的那件事，让我想了很久。"（留悬念，等对方追问）*
-
----
-
-## 快速开始
-
-### 安装
-
-```bash
-# 全局安装（所有项目可用）
-git clone https://github.com/BeamusWayne/simp-skill ~/.claude/skills/simp-skill
-
-# 或项目级安装
-git clone https://github.com/BeamusWayne/simp-skill .claude/skills/simp-skill
+```sh
+python -m venv .venv
+python -m pip install -r requirements-dev.txt
+python tools/chat_parser.py tests/fixtures/v2/direct.json 小美 --json
+python tools/skill_writer.py --action init --slug demo --base-dir ./crushes
+python tools/chat_parser.py tests/fixtures/v2/direct.json 小美 --track-time --slug demo --base-dir ./crushes --json
+python tools/time_tracker.py analyze demo --reply --base-dir ./crushes
+python tools/memory.py context demo --base-dir ./crushes
+python -m pytest -q
 ```
 
-### 基本使用
+先激活创建的虚拟环境，或把上面的 python 换成对应虚拟环境解释器。导入只在显式提供 --track-time 和已有档案时写记忆。名字和路径含空格时按 shell 语法加引号。聊天需确定账号映射，示例文件已提供合成账号。
 
-```
-/simp                          — 显示主菜单
-/simp create 小美               — 建立心上人档案，开始追求旅程
-/simp analyze                  — 解读最近的信号
-/simp message 她今天生病了        — 生成情境专属消息
-/simp confess                  — 准备表白
-/simp crisis 突然不回我消息了      — 危机处理
-/simp progress                 — 评估当前进度
-/simp mode sweet               — 切换到纯情模式
-```
+数据和完整命令见 [聊天格式](docs/CHAT-FORMAT.md)、[记忆规范](docs/MEM-SYS.md)、[迁移与恢复](docs/V2-MIGRATION.md)。旧档案默认只预览，不自动转换；--score/--stage 已废弃。--golden 保留为活跃时段别名。
 
-### 使用数据分析工具（可选）
+## 数据与验证范围
 
-**聊天记录分析**（解读信号、量化感情温度）：
+工具本身在本地读取文件并输出结果，不调用模型 API。把材料交给宿主模型分析时，数据路径和保存政策取决于该宿主/模型，不能把“本地解析”理解为“全部分析离线”。crushes、评测运行日志和个人材料不应进入版本库；仓库夹具均为合成数据。
 
-```bash
-# 把微信/QQ聊天记录导出后放到 crushes/{名字}/memories/chats/
-python3 tools/chat_parser.py 导出的聊天记录.txt 小美
-python3 tools/chat_parser.py 导出的聊天记录.txt 小美 --output crushes/xiaomei/memories/chats/analysis.md
-```
+P0–P3 包括单元、集成、CLI、迁移中断与完整恢复测试。行为案例与协议见 [evals](evals/README.md)。P4 的持续风格学习和独立 review 工作流、P5 的完整 216 次模型对照及发布验证尚未完成。当前基础表达可参考本次用户样本，实际行动和回应已能分开记录。
 
-支持格式：微信 TXT / HTML / CSV（[WeChatMsg](https://github.com/LC044/WeChatMsg)、[PyWxDump](https://github.com/xaoyaoo/PyWxDump)）、QQ TXT / MHT、通用 JSON
-
-**社交媒体内容分析**（朋友圈截图、微博、小红书等）：
-
-```bash
-# 把截图/导出文件放到 crushes/{名字}/memories/social/
-python3 tools/social_parser.py --dir crushes/xiaomei/memories/social --target 小美
-python3 tools/social_parser.py --dir crushes/xiaomei/memories/social --target 小美 --output report.md
-```
-
-**照片元数据分析**（提取拍摄时间线，检测可能的约会记录）：
-
-```bash
-# 需要先安装：pip install Pillow
-python3 tools/photo_analyzer.py --dir crushes/xiaomei/memories/photos --target 小美
-python3 tools/photo_analyzer.py --dir ./photos --target 小美 --output report.md
-```
-
-**时间追踪工具**（互动频率、回复速度、黄金时段分析）：
-
-```bash
-# 自动：通过聊天解析（同时记录互动时间）
-python3 tools/chat_parser.py 聊天记录.txt 小美 --track-time --slug xiaomei
-
-# 手动：记录见面
-python3 tools/time_tracker.py record xiaomei meeting --duration 180 --activity "咖啡+散步"
-
-# 手动：记录消息
-python3 tools/time_tracker.py record xiaomei chat_sent --summary "问她周末有没有空"
-```
-
-**分析时间数据：**
-
-```bash
-# 完整时间分析报告
-/simp timeline xiaomei
-
-# 单维度分析
-/simp timeline xiaomei --frequency   # 互动频率
-/simp timeline xiaomei --milestones  # 追求进度
-/simp timeline xiaomei --reply       # 回复速度
-/simp timeline xiaomei --golden      # 黄金时段
-```
-
----
-
-## 指令完整列表
-
-
-| 指令                     | 说明            |
-| ---------------------- | ------------- |
-| `/simp`                | 显示主菜单和当前状态    |
-| `/simp create <名字>`    | 建立心上人档案       |
-| `/simp list`           | 查看所有心上人档案     |
-| `/simp analyze [描述]`   | 解读信号，判断当前阶段   |
-| `/simp message <情境>`   | 生成情境专属消息/情话   |
-| `/simp confess`        | 表白策略 + 表白词定制  |
-| `/simp daily`          | 今日撩人小建议       |
-| `/simp crisis <情况>`    | 危机处理          |
-| `/simp progress`       | 进度评估与下一步建议    |
-| `/simp quit`           | 放弃判断器         |
-| `/simp mode sweet`     | 切换到纯情模式 💖    |
-| `/simp mode strategic` | 切换到策略模式 🎯    |
-| `/simp mode hybrid`    | 切换到混合模式 ✨（默认） |
-| `/simp update <名字>`    | 更新心上人档案       |
-| `/simp mbti [描述/类型]` | MBTI 推断 + 16 型追求策略 + 兼容性分析 |
-
-
----
-
-## 危机处理覆盖范围
-
-- **C-1** 明确被拒 → 如何优雅接受 + 何时可以重启
-- **C-2** 突然冷落/已读不回 → 观察期 + 重新出现话术
-- **C-3** 渐渐疏远 → 制造缺席感 + 改变互动方式
-- **C-4** 进入友谊区 → 三步破围法
-- **C-5** 说错话翻车 → 6-24小时内修复方案
-- **C-6** 竞争对手出现 → 差异化价值策略
-- **C-7** 表白被挂起 → 等待期策略
-- **C-8** 暧昧期停滞 → 破局三法
-- **C-9** 误会/争吵 → 修复话术框架
-- **C-10** 单方面付出 → 停止主动观察法
-- **C-11** 对方开始了新感情 → 72小时情绪处理 + 两条路线选择
-
----
-
-## 档案结构
-
-```
-crushes/
-└── {slug}/
-    ├── profile.md          — 心上人基本信息与画像（YAML frontmatter + 叙述）
-    ├── state.md            — 当前状态快照（阶段、评分、最近信号、下一步）
-    ├── events.jsonl        — 事件流，只追加，永不删除（追求轨迹）
-    ├── interactions.jsonl  — 互动时间记录（见面/消息/回复时间线）
-    ├── strategy.md         — 个性化追求策略
-    ├── meta.json           — 档案元数据（阶段/评分/模式/事件数）
-    ├── snapshots/          — 按日快照（用于跨会话快速恢复）
-    ├── versions/           — 历史版本备份
-    └── memories/
-        ├── chats/          — 聊天记录分析结果
-        ├── social/         — 社交媒体内容（截图/导出）
-        └── photos/         — 照片（EXIF分析/约会检测）
-```
-
-> 记忆系统设计与读写协议详见 [docs/MEM-SYS.md](docs/MEM-SYS.md)。
-
----
-
-## 档案管理工具
-
-```bash
-# 列出所有档案
-python3 tools/skill_writer.py --action list
-
-# 初始化新档案
-python3 tools/skill_writer.py --action init --slug xiaomei
-
-# 备份当前版本
-python3 tools/skill_writer.py --action backup --slug xiaomei
-
-# 查看版本历史
-python3 tools/skill_writer.py --action versions --slug xiaomei
-
-# 回滚到某个版本
-python3 tools/skill_writer.py --action rollback --slug xiaomei --version v2
-```
-
-### 记忆系统工具
-
-```bash
-# 追加一条事件
-python3 tools/memory.py append xiaomei signal_recorded '{"direction":"green","content":"深夜主动消息","score_delta":3}'
-
-# 查看最近 5 条事件
-python3 tools/memory.py events xiaomei --last 5
-
-# 拼装当前上下文（profile + state，给 Claude 注入）
-python3 tools/memory.py context xiaomei
-
-# 生成今日快照
-python3 tools/memory.py snapshot xiaomei
-
-# 查看完整时间线
-python3 tools/memory.py timeline xiaomei
-```
-
----
-
-## 设计原则
-
-1. **真心优于套路** — 所有策略的底层是真实的感情
-2. **专属感优于模板** — 生成的情话嵌入你们之间真实的细节
-3. **尊重对方意愿** — 如果对方明确拒绝，帮助优雅放手，不强行继续
-4. **数据本地化** — 所有分析在本地进行，聊天记录不上传任何服务器
-5. **不教 PUA** — 任何操控类、让对方不安全感的话术，一律不用
-
-> 完整的产品设计逻辑、双模式设计决策、伦理边界定义，见 [docs/PRD.md](docs/PRD.md)
-
----
-
-## 写给自己，也献给你
-
-茫茫人海，一旦错过就不再。
-
-有些话，不是不想说，是不知道怎么说。等到知道了，有些人已经不在了。
-
-写这个的时候，我想的不是怎么追到一个人。
-
-我想的是，有多少人心里明明装着一个人，却不知道怎么开口。不是不在乎，是不会表达。不是不爱，是爱的方式对方感受不到。
-
-这个工具能帮你说出你想说的话，能帮你看懂一些信号，能在你翻车的时候递给你一个台阶。但有一件事它做不到：替你喜欢那个人。那件事，从来都只能是你。
-
-爱人是一种能力，但不只是一种技能。技能可以靠方法复刻，能力不一样——它需要你真的进场，真的犯错，真的在某个夜里想起一个人，不知道该怎么办，然后慢慢学会。
-
-每个人希望被爱的方式不一样。有人需要你说出来，有人需要你做到。有人需要你在，有人需要你懂得走开。这件事没有人天生就会。
-
-如果这个项目能帮你多了解一个人一点，帮你多表达一点——那就够了。
-
-追没追到，是另一回事。学着去爱，才是这件事真正的结果。
-
----
-
-## 许可证
-
-MIT License — 自由使用，记得去追你的心上人。
-
----
-
-*Made with 💝 by [Beamus Wayne](https://github.com/BeamusWayne)*  
-*愿每一份真心都有回应。*
+旧版历史与基线：`71f64215f50aeb5b619fb34fa44adb9247c85770`。许可见 [LICENSE](LICENSE)。

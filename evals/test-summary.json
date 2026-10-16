@@ -1,0 +1,17 @@
+{
+  "platform": "Windows",
+  "python": "3.12.14",
+  "tests_passed": 200,
+  "tests_failed": 0,
+  "coverage_kind": "line",
+  "coverage_percent": 92.22,
+  "baseline_commit": "71f64215f50aeb5b619fb34fa44adb9247c85770",
+  "v1_tests": {
+    "passed": 224,
+    "failed": 1,
+    "failure": "fixed May-10 timestamps fell outside implicit recent-30-days window"
+  },
+  "model_runs": 0,
+  "model_runs_note": "Author walkthrough only; independent 216-run comparison remains P5.",
+  "ci": "Windows/Linux matrix configured; see GitHub checks for remote execution status."
+}
