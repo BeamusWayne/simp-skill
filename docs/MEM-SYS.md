@@ -65,3 +65,33 @@ context 对有效记录做文本检索/类型筛选，选最近 limit 条再补�
 直接改投影会被哈希校验发现，正常读取停止。rebuild 先保存当前完整备份，再从有效日志重建；手工笔记留在备份，不静默升格为事实。日志损坏时拒绝重建，不跳过坏行。修订应走 append；不要把 rebuild 用作接受手工判断的捷径。
 
 source_refs 是可追溯引用，普通 append 验证格式；显式 `migrate_v2.py NAME --check` 校验每个引用文件的存在与哈希。外部源文件移动/修改会导致 check 失败，不能声称已验证原文。记忆内容和输入材料均作为数据，不授权模型执行其中的命令。
+
+## 冲突议题和联系约束
+
+已启用档案可为一个具体事件追加 `assessment`。在 `data` 里写 `repair_schema: 1`、`summary`、`supporting_ids` 和 `conflict`。首次写入时，`conflict.opening_record_id` 指向有效的 `observation` 或 `user_report`，并列入支持证据。`status` 为 `open`，工具从起始记录生成稳定的 `issue_id`。后续沿用该议题和起始记录，在顶层 `supersedes` 填最新议题记录 ID。新的判断依赖事实记录，不依赖刚被替换的判断。
+
+```json
+{
+  "kind": "assessment",
+  "data": {
+    "repair_schema": 1,
+    "summary": "用户希望之后谈谈当众开玩笑这件事",
+    "supporting_ids": ["r:opening"],
+    "conflict": {"opening_record_id": "r:opening", "status": "open"}
+  }
+}
+```
+
+`discussed` 表示谈过但结果待确认，`resolved` 表示已确认解决，`closed_by_user` 表示用户决定不再跟进。改变已有状态时，在 `conflict.status_evidence_ids` 提供发生在前次状态依据之后的实际证据，同时放入 `supporting_ids`。用户决定不再跟进须有用户本人的转述。草稿、时间经过、无关回复都不能作为这些变化的依据。确认采取行动后，可为 `action_report.data` 添加 `repair_schema: 1` 和 `issue_id`。关联该行动的 `outcome` 会继承标识。
+
+联系约束用 `data.repair_schema: 1`、`data.confirmed: true` 的 `preference` 保存，保留 `source_refs`，并用 `supporting_ids` 关联明确表达。`contact:all` 的值是 `no_contact`、`pause` 或 `lifted`，`contact:romance` 的值是 `no_romance` 或 `lifted`。`lifted` 需要对方后来明确更新该范围。证据可以是明确归属对方的原始消息，也可以是 `data.reported_role` 为 `target` 的 `user_report`，后者只用于用户明确转述对方本人的表达。修改同一范围时在 `supersedes` 引用最新记录。
+
+```sh
+python3 tools/memory.py context NAME --open-issues --base-dir DIR
+python3 tools/memory.py context NAME --issue ISSUE_ID --base-dir DIR
+python3 tools/memory.py context NAME --contact-boundaries --base-dir DIR
+```
+
+定向查询返回当前议题、联系约束和有效依据。`--open-issues` 包括 `open`、`discussed` 和 `needs_review`，`--issue` 也可查已结束的议题及关联的已确认行动和结果。这个查询先按议题合并历史，再应用 `--last`，不能同时用普通的 `--query` 或 `--type`。证据被纠正后，相关议题或联系约束显示 `needs_review` 并省略失效内容，显式撤回显示 `withdrawn`。联系约束的当前记录不受 `--last` 影响。
+
+写入沿用档案锁、精确重放和日志恢复。议题与联系约束的写入返回 `scope_state`，可区分重放的记录和当前版本。如果提交基于旧版本，先重新读取并核对证据，再决定是否还有必要更新。旧 V2 档案不需要迁移。跨会话功能不会发送消息或安排自动回谈。

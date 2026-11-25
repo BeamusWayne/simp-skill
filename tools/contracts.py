@@ -13,6 +13,11 @@ SCHEMA_VERSION = 2
 ROLES = {"user", "target", "third_party", "system", "unknown"}
 KINDS = {"observation", "user_report", "identity_mapping", "preference", "assessment",
          "advice", "action_report", "outcome", "correction", "legacy_record"}
+CONFLICT_STATUSES = {"open", "discussed", "resolved", "closed_by_user"}
+CONTACT_BOUNDARY_VALUES = {
+    "contact:all": {"no_contact", "pause", "lifted"},
+    "contact:romance": {"no_romance", "lifted"},
+}
 
 
 def utc_now() -> str:
@@ -22,6 +27,10 @@ def utc_now() -> str:
 def stable_id(value: Any, prefix: str = "") -> str:
     raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return prefix + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def conflict_issue_id(opening_record_id: str) -> str:
+    return stable_id(opening_record_id, "issue:")
 
 
 def file_digest(path: Path) -> str:
@@ -138,6 +147,24 @@ def validate_message(msg: Message) -> None:
         validate_source(ref)
 
 
+def _validate_conflict(data: dict) -> None:
+    conflict = data.get("conflict")
+    if not isinstance(conflict, dict):
+        raise ValueError("data.conflict must be an object")
+    opening = conflict.get("opening_record_id")
+    if not isinstance(opening, str) or not opening or conflict.get("issue_id") != conflict_issue_id(opening):
+        raise ValueError("conflict requires an opening_record_id and its matching issue_id")
+    status = conflict.get("status")
+    if not isinstance(status, str) or status not in CONFLICT_STATUSES:
+        raise ValueError("invalid conflict status")
+    evidence = conflict.get("status_evidence_ids", [])
+    supporting = data.get("supporting_ids", [])
+    if not isinstance(evidence, list) or any(not isinstance(ref, str) or ref not in supporting for ref in evidence):
+        raise ValueError("conflict status_evidence_ids must be in supporting_ids")
+    if not supporting or (status != "open" and not evidence):
+        raise ValueError("conflict status requires supporting evidence")
+
+
 def validate_record(record: dict) -> None:
     if record.get("schema_version") != SCHEMA_VERSION or record.get("kind") not in KINDS:
         raise ValueError("unsupported record schema or kind")
@@ -177,6 +204,21 @@ def validate_record(record: dict) -> None:
             raise ValueError(f"data.{key} must contain record IDs")
         if any(ref not in record["related_record_ids"] for ref in data.get(key, [])):
             raise ValueError(f"data.{key} must be included in related_record_ids")
+    if "repair_schema" in data:
+        if type(data["repair_schema"]) is not int or data["repair_schema"] != 1:
+            raise ValueError("unsupported repair_schema")
+        if kind == "assessment":
+            _validate_conflict(data)
+        elif kind in {"action_report", "outcome"}:
+            if not isinstance(data.get("issue_id"), str) or not data["issue_id"]:
+                raise ValueError("issue_id must be a nonempty string")
+        elif kind == "preference":
+            values = CONTACT_BOUNDARY_VALUES.get(data["key"], set())
+            if (not isinstance(data["value"], str) or data["value"] not in values or
+                    data.get("confirmed") is not True or not data.get("supporting_ids")):
+                raise ValueError("contact boundary requires an allowed scope and value, confirmation and supporting_ids")
+        else:
+            raise ValueError("repair_schema is reserved for issues, linked actions and outcomes, and contact boundaries")
     if kind == "outcome" and data["action_id"] not in record["related_record_ids"]:
         raise ValueError("action_id must be included in related_record_ids")
     if kind == "observation" and "message" in data:

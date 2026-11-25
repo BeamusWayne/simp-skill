@@ -4,6 +4,8 @@
 
 cases.jsonl 为 24 个合成案例，8 组，每组至少 1 个留出案例；12 development / 12 holdout。调试只用 development；holdout 不用于本轮提示词迭代。E17–E18 的完整多轮风格/复盘验收属于 P4。夹具均在 tests/fixtures/v2，无真实聊天。截图夹具是合成识读结果，只测归属流程，不测像素级视觉识别。
 
+`conflict-repair-cases.jsonl` 是独立的 8 个合成对话，4 个调试、4 个留出。先发送 `input`，再把 `followups` 中的内容按顺序作为独立用户轮次发送。整段结束后按 `must`、`must_not` 和关键错误判定。模型只看用户轮次和待测 Skill，评审另看判定条件。该增量评测不改变下面的 216 次基线计划。
+
 基线提交：71f64215f50aeb5b619fb34fa44adb9247c85770。改代码前 Windows/Python 3.12.14 运行旧版测试：224 passed、1 failed；唯一失败是 test_time_tracker 的固定 2026-05-10 数据落在运行日默认 30 天窗口外。新版默认完整已记录范围，需要时间窗口时接受显式 now，测试不依赖当前日期。
 
 baseline-v1.json 是改动前保存的工具探针，初次得到 20/25。后续固定夹具可用 `python evals/reproduce_baseline.py` 在 v1/v2 上运行同一份材料；需 Git 对象里保留基线提交。该夹具与初次探针的具体句子不同，复跑得到 19/25，同样是“强烈绿灯”并建议表白。这里只加载本仓库固定提交的代码，未使用网络或模型；v2 无评分接口并保留拒绝原文。复跑结果保存为 tool-comparison.json。
